@@ -1,0 +1,23 @@
+# Config (contains your API key and personal info - NEVER commit this)
+config.yaml
+
+# Output data (resumes, screenshots, application DB)
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Resume files (personal documents)
+*.pdf
+*.docx
+
+# OS
+.DS_Store
+Thumbs.db
