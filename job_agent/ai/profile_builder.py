@@ -135,7 +135,36 @@ class ProfileBuilder:
                 raw_json = raw_json[4:]
         raw_json = raw_json.strip().rstrip("```")
 
-        profile_data = json.loads(raw_json)
+        try:
+            profile_data = json.loads(raw_json)
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] Failed to parse Claude's JSON response: {e}")
+            print(f"[DEBUG] Attempting to fix incomplete JSON...")
+            
+            # Try to find the last complete JSON object by working backwards
+            for i in range(len(raw_json) - 1, -1, -1):
+                if raw_json[i] == '}':
+                    try:
+                        profile_data = json.loads(raw_json[:i+1])
+                        print(f"[DEBUG] Successfully parsed truncated JSON")
+                        break
+                    except json.JSONDecodeError:
+                        continue
+            else:
+                # If we still can't parse, create a minimal profile from available data
+                print(f"[WARN] Could not parse JSON. Using minimal profile.")
+                profile_data = {
+                    "name": resume_data.get("contact", {}).get("name", "Unknown"),
+                    "email": resume_data.get("contact", {}).get("email", ""),
+                    "phone": resume_data.get("contact", {}).get("phone", ""),
+                    "location": resume_data.get("contact", {}).get("location", ""),
+                    "linkedin_url": "",
+                    "summary": "Profile building in progress...",
+                    "unique_value_props": [],
+                    "skills": [],
+                    "certifications": [],
+                    "vault_insights": {},
+                }
 
         # Build UserProfile from parsed data
         profile = UserProfile(

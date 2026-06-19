@@ -49,14 +49,14 @@ class JobOrchestrator:
         ]:
             Path(d).mkdir(parents=True, exist_ok=True)
 
-    # ── Profile Loading ───────────────────────────────────────────────────────
+    # -- Profile Loading --
 
     def load_profile(self):
         """Load and build the user profile from vault + resume."""
         if self.profile:
             return self.profile
 
-        print("\n[orchestrator] ── STEP 1: Building Profile ──")
+        print("\n[orchestrator] -- STEP 1: Building Profile --")
 
         # Parse resume
         resume_data = {}
@@ -95,7 +95,7 @@ class JobOrchestrator:
         print(f"[orchestrator] Profile built for: {self.profile.name}")
         return self.profile
 
-    # ── Main Pipeline ─────────────────────────────────────────────────────────
+    # -- Main Pipeline --
 
     def run(
         self,
@@ -123,12 +123,12 @@ class JobOrchestrator:
 
         if not apply_only:
             # Step 2: Search
-            print("\n[orchestrator] ── STEP 2: Searching Jobs ──")
+            print("\n[orchestrator] -- STEP 2: Searching Jobs --")
             jobs = self.searcher.search_all()
             print(f"[orchestrator] Found {len(jobs)} jobs before scoring")
 
             # Step 3: Score
-            print("\n[orchestrator] ── STEP 3: Scoring Jobs ──")
+            print("\n[orchestrator] -- STEP 3: Scoring Jobs --")
             scored_jobs = self.scorer.score_batch(jobs, profile, min_score=min_score)
             print(f"[orchestrator] {len(scored_jobs)} jobs scored >= {min_score}")
 

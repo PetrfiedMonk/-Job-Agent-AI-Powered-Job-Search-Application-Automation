@@ -84,7 +84,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
 
     raw = {}
     if path.exists():
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             raw = yaml.safe_load(f) or {}
 
     cfg = AppConfig(
