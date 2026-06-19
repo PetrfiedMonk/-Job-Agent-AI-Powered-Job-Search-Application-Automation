@@ -1,0 +1,507 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app.loading {
+  justify-content: center;
+  align-items: center;
+  font-size: 24px;
+  color: white;
+}
+
+/* Header */
+.header {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2rem;
+  color: white;
+  text-align: center;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.header h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.header p {
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+/* Navigation */
+.nav-tabs {
+  display: flex;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  overflow-x: auto;
+}
+
+.tab {
+  flex: 1;
+  padding: 1rem;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+  border-bottom: 3px solid transparent;
+}
+
+.tab:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tab.active {
+  color: white;
+  border-bottom-color: #ff6b6b;
+}
+
+/* Main Content */
+.main {
+  flex: 1;
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.tab-content {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.tab-content h2 {
+  color: #333;
+  margin-bottom: 2rem;
+  font-size: 1.8rem;
+}
+
+.tab-content h3 {
+  color: #555;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.tab-content h4 {
+  color: #666;
+  margin: 1rem 0 0.5rem 0;
+}
+
+.tab-content p {
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 2rem;
+  font-style: italic;
+}
+
+/* Status Cards */
+.status-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  text-align: center;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+}
+
+.card.status-card {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.card.status-card.running {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.card-label {
+  font-size: 0.9rem;
+  opacity: 0.9;
+  margin-bottom: 0.5rem;
+}
+
+.card-value {
+  font-size: 2rem;
+  font-weight: bold;
+}
+
+.pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 50%;
+  margin-right: 0.5rem;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Current Step */
+.current-step {
+  background: #f0f4ff;
+  border-left: 4px solid #667eea;
+  padding: 1rem;
+  border-radius: 4px;
+  margin-bottom: 2rem;
+  color: #333;
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #e0e0e0;
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%);
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(245, 87, 108, 0.4);
+}
+
+/* Profile */
+.profile-card {
+  background: #f9f9f9;
+  padding: 2rem;
+  border-radius: 12px;
+  border: 1px solid #e0e0e0;
+}
+
+.profile-card h3 {
+  color: #333;
+  font-size: 1.5rem;
+  margin-top: 0;
+}
+
+.profile-card p {
+  margin-bottom: 0.5rem;
+}
+
+.profile-card a {
+  color: #667eea;
+  text-decoration: none;
+}
+
+.profile-card a:hover {
+  text-decoration: underline;
+}
+
+.section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.section h4 {
+  margin-top: 0;
+  color: #555;
+}
+
+.section ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.section li {
+  padding: 0.5rem 0;
+  color: #666;
+  position: relative;
+  padding-left: 1.5rem;
+}
+
+.section li:before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: #667eea;
+  font-weight: bold;
+}
+
+/* Skills */
+.skills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.skill-tag {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+
+/* Jobs List */
+.jobs-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.job-card {
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.job-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  gap: 1rem;
+}
+
+.job-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.2rem;
+  flex: 1;
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-badge.status-found {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.status-badge.status-scored {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.status-badge.status-applied {
+  background: #e8f5e9;
+  color: #388e3c;
+}
+
+.status-badge.status-rejected {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.company {
+  font-weight: 600;
+  color: #667eea;
+  margin-bottom: 0.5rem;
+}
+
+.location, .salary {
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.scores {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: 1rem 0;
+  border-top: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.score {
+  display: grid;
+  grid-template-columns: 80px 1fr 50px;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.score-bar {
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.score-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+}
+
+/* Logs */
+.logs-container {
+  background: #1e1e1e;
+  color: #0ff;
+  padding: 1.5rem;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  max-height: 500px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.log-line {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.log-line.log-error {
+  color: #ff6b6b;
+}
+
+.log-line.log-success {
+  color: #51cf66;
+}
+
+.timestamp {
+  color: #888;
+  flex-shrink: 0;
+}
+
+.message {
+  flex: 1;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .header h1 {
+    font-size: 1.8rem;
+  }
+  
+  .main {
+    padding: 1rem;
+  }
+  
+  .tab-content {
+    padding: 1rem;
+  }
+  
+  .status-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+  
+  .jobs-list {
+    grid-template-columns: 1fr;
+  }
+  
+  .controls {
+    flex-direction: column;
+  }
+  
+  .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-tabs {
+    flex-direction: column;
+  }
+  
+  .tab {
+    border-bottom: none;
+    border-right: 3px solid transparent;
+  }
+  
+  .tab.active {
+    border-bottom: none;
+    border-right-color: #ff6b6b;
+  }
+  
+  .status-cards {
+    grid-template-columns: 1fr;
+  }
+}
