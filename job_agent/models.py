@@ -11,7 +11,8 @@ class ApplicationStatus(str, Enum):
     QUEUED = "queued"
     APPLYING = "applying"
     APPLIED = "applied"
-    FAILED = "failed"
+    FAILED = "failed"           # Automation crashed/errored — can retry
+    NEEDS_MANUAL = "needs_manual"  # Tried but requires human (CAPTCHA, login, complex ATS)
     INTERVIEW = "interview"
     REJECTED = "rejected"
     OFFER = "offer"
@@ -41,6 +42,7 @@ class JobPosting:
     remote: bool = False
     posted_date: Optional[datetime] = None
     easy_apply: bool = False          # LinkedIn Easy Apply / Indeed Apply
+    description_summary: str = ""    # Compressed description (~700 chars), stored in DB
     fit_score: float = 0.0            # 0-100, AI-scored match
     salary_score: float = 0.0         # 0-100, compensation potential
     combined_score: float = 0.0       # weighted final score
@@ -99,6 +101,8 @@ class UserProfile:
     # Vault-enriched content
     vault_insights: Dict[str, str] = field(default_factory=dict)   # topic -> summary
     unique_value_props: List[str] = field(default_factory=list)    # USPs from vault analysis
+    vault_skills: List[str] = field(default_factory=list)          # Skills found only in vault
+    vault_gems: List[Dict[str, str]] = field(default_factory=list) # Hidden strengths discovered
     raw_vault_text: str = ""                                        # Full vault dump for AI context
 
     # Job preferences

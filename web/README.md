@@ -1,6 +1,6 @@
 # Job Agent Web UI
 
-A modern web interface for the Job Agent, built with **FastAPI** (backend) and **React** (frontend).
+A modern web interface for the Job Agent, built with **FastAPI** backend and **vanilla HTML/CSS/JavaScript** frontend (no npm required!).
 
 ## Features
 
@@ -10,185 +10,159 @@ A modern web interface for the Job Agent, built with **FastAPI** (backend) and *
 📊 **Real-time Logs** - Watch the agent run with live log streaming
 ⚙️ **Controls** - Start/stop searches with one click
 
+## Quick Start
+
+### 1. Install Dependencies
+
+```bash
+pip install -r web/requirements.txt
+```
+
+### 2. Run the Server
+
+```bash
+python web/backend/main.py
+```
+
+### 3. Open Browser
+
+Visit **http://localhost:8000** 🌐
+
+That's it! The frontend is a single HTML file with no build steps needed.
+
+---
+
 ## Architecture
 
 ```
 web/
 ├── backend/
-│   └── main.py          # FastAPI server
+│   └── main.py          # FastAPI server with REST API + WebSocket
 ├── frontend/
-│   ├── src/
-│   │   ├── App.jsx      # Main React component
-│   │   ├── App.css      # Styles
-│   │   └── index.jsx    # React entry point
-│   ├── public/
-│   │   └── index.html   # HTML template
-│   └── package.json     # React dependencies
+│   ├── index.html       # All-in-one UI (HTML + CSS + JS)
+│   └── package.json     # (Optional - for future React migration)
 └── requirements.txt     # Python dependencies
 ```
 
-## Setup
+## Features in Detail
 
-### 1. Install Backend Dependencies
-
-```bash
-# From the web/ directory
-pip install -r requirements.txt
-```
-
-### 2. Install Frontend Dependencies
-
-```bash
-cd frontend
-npm install
-```
-
-### 3. Build the Frontend
-
-```bash
-cd frontend
-npm run build
-```
-
-This creates a `build/` folder that the FastAPI server will serve.
-
-## Running
-
-### Option 1: Both Backend + Frontend (Production)
-
-```bash
-# From the web/ directory
-python backend/main.py
-```
-
-Then open http://localhost:8000 in your browser.
-
-### Option 2: Development Mode (Backend + Frontend Dev Server)
-
-**Terminal 1 - Backend:**
-```bash
-python backend/main.py
-```
-
-**Terminal 2 - Frontend Dev Server:**
-```bash
-cd frontend
-npm start
-```
-
-Then open http://localhost:3000 in your browser.
-
-## API Endpoints
-
-### Health Check
-```
-GET /api/health
-```
+### Dashboard
+- Real-time pipeline status
+- 4 key metrics (Jobs Found, Scored, Applied)
+- Start/Stop controls
+- Current step indicator
 
 ### Profile
-```
-GET /api/profile
-```
-Returns the user's AI-synthesized profile.
-
-### Status
-```
-GET /api/status
-```
-Returns current pipeline status (running, jobs found, scored, applied).
+- Your name, email, location
+- LinkedIn profile
+- Summary from resume + Obsidian vault
+- Top skills from AI synthesis
 
 ### Jobs
-```
-GET /api/jobs?status=found&limit=50
-```
-Returns job results from database.
+- Browse all discovered jobs
+- Fit score visualization
+- Salary information
+- Direct links to job postings
+- Status badges (found, scored, applied, rejected)
 
-### Start Search
-```
-POST /api/start-search
-```
-Starts a job search in the background.
+### Logs
+- Real-time log streaming via WebSocket
+- Color-coded messages (info, success, error)
+- Auto-scrolling log viewer
+- Complete pipeline activity history
 
-### Stop Pipeline
-```
-POST /api/stop-pipeline
-```
-Stops the running pipeline.
+---
 
-### WebSocket Logs
-```
-WS /ws/logs
-```
-Real-time log stream during pipeline execution.
+## API Reference
 
-## Environment
+### REST Endpoints
 
-Make sure your `.env` or environment variables are set:
+```
+GET  /api/health                  # Health check
+GET  /api/profile                 # Get AI-synthesized profile
+GET  /api/status                  # Get pipeline status
+GET  /api/jobs?status=X&limit=50  # Get jobs from database
+POST /api/start-search            # Start job search
+POST /api/stop-pipeline           # Stop running pipeline
+```
+
+### WebSocket
+
+```
+WS /ws/logs                        # Real-time log streaming
+```
+
+---
+
+## Environment Setup
+
+Make sure your environment variables are set:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...
+# Set your Anthropic API key
+$env:ANTHROPIC_API_KEY = "sk-ant-YOUR_KEY_HERE"
+
+# Then run the server
+python web/backend/main.py
 ```
 
-The backend reads from `config.yaml` and uses the same configuration as the CLI version.
+The backend reads from `config.yaml` in the parent directory.
 
-## Performance
+---
 
-- **Frontend**: React 18, builds to ~50KB gzipped
-- **Backend**: FastAPI with async/WebSocket support
-- **Database**: SQLite queries for job results
-- **Real-time**: WebSocket streaming for logs
+## How It Works
+
+1. **Frontend** sends requests to FastAPI REST API
+2. **Backend** connects to Job Agent core (same as CLI)
+3. **WebSocket** streams real-time logs during execution
+4. **Database** is shared with CLI (output/applications.db)
+
+---
 
 ## Troubleshooting
 
 ### Port Already in Use
-If port 8000 is already in use:
 ```bash
-python backend/main.py --port 8001
+python web/backend/main.py --port 8001
 ```
 
-### CORS Errors
-The backend is configured to allow all origins in development. For production, update:
-```python
-# web/backend/main.py
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["yourdomain.com"],  # Change this
-    ...
-)
+### Backend Not Responding
+- Verify the backend is running: `python web/backend/main.py`
+- Check that port 8000 is not blocked
+- Ensure your API key is set: `echo $env:ANTHROPIC_API_KEY`
+
+### WebSocket Connection Failed
+- This is normal if the backend just started
+- The frontend will auto-reconnect
+- Check browser console for details
+
+---
+
+## Performance
+
+- **Frontend**: Single HTML file, ~50KB
+- **Backend**: FastAPI with async/WebSocket support
+- **Database**: SQLite queries for instant results
+- **Real-time**: WebSocket streaming with <100ms latency
+
+---
+
+## API Documentation
+
+Once running, visit:
+
+```
+http://localhost:8000/docs
 ```
 
-### Frontend Build Issues
-```bash
-cd frontend
-rm -rf node_modules build
-npm install
-npm run build
-```
+This opens the interactive Swagger UI with all API endpoints documented.
 
-## File Structure
-
-```
-web/
-├── backend/
-│   ├── __init__.py
-│   └── main.py           # FastAPI app with all endpoints
-├── frontend/
-│   ├── public/
-│   │   └── index.html    # HTML template
-│   ├── src/
-│   │   ├── App.css       # All styles (Tailwind-inspired)
-│   │   ├── App.jsx       # React component
-│   │   └── index.jsx     # Entry point
-│   ├── package.json      # Dependencies
-│   └── .gitignore        # Ignore node_modules, build
-├── requirements.txt      # Python packages
-└── README.md             # This file
-```
+---
 
 ## Next Steps
 
-1. ✅ Run the backend
-2. ✅ Build the frontend
+1. ✅ `pip install -r web/requirements.txt`
+2. ✅ `python web/backend/main.py`
 3. ✅ Open http://localhost:8000
 4. ✅ Click "Start Search"
 5. ✅ Watch real-time logs and results

@@ -1,0 +1,57 @@
+## Job Agent Configuration
+## Copy this file to config.yaml and fill in your details.
+## Run setup.bat (Windows) or ./setup.sh (Mac/Linux) to do this automatically.
+
+profile:
+  name: "Your Name"
+  email: "you@email.com"
+  phone: "555-555-5555"
+  location: "City, State"
+  linkedin_url: "https://linkedin.com/in/yourprofile"
+  github_url: ""
+  website: ""
+  obsidian_vault_path: "/path/to/your/ObsidianVault"   # or leave blank
+  resume_path: "/path/to/your/resume.pdf"               # PDF or DOCX
+
+ai:
+  anthropic_api_key: ""    # Get yours at https://console.anthropic.com
+                           # Or set the ANTHROPIC_API_KEY environment variable
+  model: "claude-opus-4-8"               # Used for profile building (best quality)
+  resume_model: "claude-sonnet-4-6"      # Used for resume tailoring (fast + smart)
+  scoring_model: "claude-haiku-4-5-20251001"  # Used for batch scoring (cheapest)
+  max_tokens: 4096
+  temperature: 0.3
+
+search:
+  keywords:
+    - "Software Engineer"
+    - "Product Manager"
+    - "Business Analyst"
+  locations:
+    - "remote"
+    - "Chicago, IL"
+  platforms:
+    - "indeed"
+    - "linkedin"
+  min_salary: 80000
+  max_results_per_search: 25
+  job_types:
+    - "fulltime"
+  exclude_companies: []
+  exclude_keywords: []
+
+automation:
+  headless: false          # false = visible browser; true = background (no window)
+  slow_mo_ms: 150          # Milliseconds between actions (human-like pacing)
+  timeout_ms: 30000
+  max_applications_per_run: 20
+  pause_on_captcha: true   # Pauses and alerts you when a CAPTCHA appears
+  auto_submit: false       # IMPORTANT: keep false until you're ready to actually submit
+  screenshot_on_apply: true
+
+output:
+  output_dir: "./output"
+  resumes_dir: "./output/resumes"
+  screenshots_dir: "./output/screenshots"
+  db_path: "./output/applications.db"
+  resume_template: "modern"   # modern | classic | minimal

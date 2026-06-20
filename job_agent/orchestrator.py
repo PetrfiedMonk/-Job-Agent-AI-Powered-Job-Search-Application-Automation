@@ -12,12 +12,15 @@ The main pipeline that ties everything together:
 """
 import uuid
 import time
+import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional
 
 from job_agent.config import AppConfig, load_config
-from job_agent.models import Application, ApplicationStatus, TailoredResume
+from job_agent.models import Application, ApplicationStatus, TailoredResume, UserProfile, WorkExperience, Education
 from job_agent.parsers.vault_parser import VaultParser
+from job_agent.parsers.vault_index import VaultIndex
 from job_agent.parsers.resume_parser import parse_resume
 from job_agent.ai.profile_builder import ProfileBuilder
 from job_agent.ai.job_scorer import JobScorer
@@ -26,6 +29,8 @@ from job_agent.builders.resume_builder import build_resume_docx
 from job_agent.search.job_searcher import JobSearcher
 from job_agent.automation.application_agent import ApplicationAgent
 from job_agent.db.tracker import Tracker
+
+PROFILE_CACHE_FILE = "profile_cache.json"
 
 
 class JobOrchestrator:
@@ -39,7 +44,8 @@ class JobOrchestrator:
         self.tailor = ResumeTailor(config.ai)
         self.agent = ApplicationAgent(config.automation, config.output.screenshots_dir)
 
-        self.profile = None  # Loaded lazily
+        self.profile = None      # Loaded lazily
+        self.vault_index = None  # Built lazily alongside profile
 
     def _setup_output_dirs(self):
         for d in [
@@ -51,13 +57,27 @@ class JobOrchestrator:
 
     # -- Profile Loading --
 
-    def load_profile(self):
-        """Load and build the user profile from vault + resume."""
-        if self.profile:
+    def load_profile(self, force_rebuild: bool = False):
+        """Load the user profile, using disk cache when available."""
+        if self.profile and not force_rebuild:
             return self.profile
 
-        print("\n[orchestrator] -- STEP 1: Building Profile --")
+        # Try the disk cache first (skips Claude API call)
+        if not force_rebuild:
+            cached = self._load_profile_cache()
+            if cached:
+                self.profile = cached
+                # Also load vault index so tailoring still works
+                self._load_vault_index()
+                return self.profile
 
+        print("\n[orchestrator] -- STEP 1: Building Profile --")
+        self.profile = self._build_profile()
+        self._save_profile_cache(self.profile)
+        return self.profile
+
+    def _build_profile(self) -> "UserProfile":
+        """Call Claude to synthesize a fresh profile from resume + vault."""
         # Parse resume
         resume_data = {}
         if self.config.profile.resume_path:
@@ -67,19 +87,8 @@ class JobOrchestrator:
             print("[orchestrator] No resume path set. Using empty resume.")
             resume_data = {"raw_text": "", "contact": {}, "sections": {}}
 
-        # Parse Obsidian vault
-        vault_data = None
-        if self.config.profile.obsidian_vault_path:
-            print(f"[orchestrator] Parsing Obsidian vault: {self.config.profile.obsidian_vault_path}")
-            try:
-                parser = VaultParser(self.config.profile.obsidian_vault_path)
-                vault_data = parser.parse()
-            except Exception as e:
-                print(f"[orchestrator] Warning: vault parse failed: {e}")
-        else:
-            print("[orchestrator] No Obsidian vault path configured.")
+        vault_index = self._load_vault_index(force=True)
 
-        # Build AI profile
         builder = ProfileBuilder(self.config.ai)
         user_overrides = {
             "name": self.config.profile.name,
@@ -91,9 +100,63 @@ class JobOrchestrator:
             "min_salary": self.config.search.min_salary,
             "target_roles": self.config.search.keywords[:5],
         }
-        self.profile = builder.build(resume_data, vault_data, user_overrides)
-        print(f"[orchestrator] Profile built for: {self.profile.name}")
-        return self.profile
+        profile = builder.build(resume_data, vault_index, user_overrides)
+        print(f"[orchestrator] Profile built for: {profile.name}")
+        return profile
+
+    def _load_vault_index(self, force: bool = False) -> Optional[VaultIndex]:
+        """Load (or rebuild) the vault index. No Claude calls — pure local parsing."""
+        if self.vault_index and not force:
+            return self.vault_index
+        if not self.config.profile.obsidian_vault_path:
+            print("[orchestrator] No Obsidian vault path configured.")
+            return None
+        print(f"[orchestrator] Indexing Obsidian vault: {self.config.profile.obsidian_vault_path}")
+        try:
+            vault_index = VaultIndex(
+                self.config.profile.obsidian_vault_path,
+                index_dir=self.config.output.output_dir,
+            )
+            vault_index.build(force=force)
+            self.vault_index = vault_index
+            return vault_index
+        except Exception as e:
+            print(f"[orchestrator] Warning: vault index failed: {e}")
+            return None
+
+    # -- Profile Cache --
+
+    def _profile_cache_path(self) -> Path:
+        return Path(self.config.output.output_dir) / PROFILE_CACHE_FILE
+
+    def _save_profile_cache(self, profile: UserProfile):
+        try:
+            data = asdict(profile)
+            data["_cached_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+            with open(self._profile_cache_path(), "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            print(f"[orchestrator] Profile saved to cache: {self._profile_cache_path()}")
+        except Exception as e:
+            print(f"[orchestrator] Warning: could not save profile cache: {e}")
+
+    def _load_profile_cache(self) -> Optional[UserProfile]:
+        path = self._profile_cache_path()
+        if not path.exists():
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            cached_at = data.pop("_cached_at", "unknown")
+            experience = [WorkExperience(**e) for e in data.pop("experience", [])]
+            education = [Education(**e) for e in data.pop("education", [])]
+            profile = UserProfile(**data)
+            profile.experience = experience
+            profile.education = education
+            print(f"[orchestrator] Profile loaded from cache (built: {cached_at})")
+            return profile
+        except Exception as e:
+            print(f"[orchestrator] Warning: could not load profile cache: {e}")
+            return None
 
     # -- Main Pipeline --
 
@@ -175,9 +238,9 @@ class JobOrchestrator:
                 combined_score=job_data["combined_score"] or 0,
             )
 
-            # Tailor resume
+            # Tailor resume (vault_index enables targeted retrieval per job)
             try:
-                tailored = self.tailor.tailor(job, profile)
+                tailored = self.tailor.tailor(job, profile, vault_index=self.vault_index)
             except Exception as e:
                 print(f"[orchestrator] Resume tailor failed for {job.title}: {e}")
                 continue

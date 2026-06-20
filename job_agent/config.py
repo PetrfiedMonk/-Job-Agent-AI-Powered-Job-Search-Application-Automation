@@ -31,7 +31,8 @@ class SearchConfig:
 class AIConfig:
     anthropic_api_key: str = ""
     model: str = "claude-opus-4-8"
-    resume_model: str = "claude-sonnet-4-6"   # faster/cheaper for resume tailoring
+    resume_model: str = "claude-sonnet-4-6"
+    scoring_model: str = "claude-haiku-4-5-20251001"  # batch scoring only — 60% cheaper
     max_tokens: int = 4096
     temperature: float = 0.3
 
@@ -130,6 +131,7 @@ def save_example_config(path: str = "config.yaml"):
             "anthropic_api_key": "",   # Or set ANTHROPIC_API_KEY env var
             "model": "claude-opus-4-8",
             "resume_model": "claude-sonnet-4-6",
+            "scoring_model": "claude-haiku-4-5-20251001",
         },
         "automation": {
             "headless": False,

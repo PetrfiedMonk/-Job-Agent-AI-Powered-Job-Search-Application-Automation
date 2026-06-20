@@ -8,10 +8,11 @@ screenshot them, but NOT click submit unless you explicitly enable it.
 """
 import asyncio
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 from datetime import datetime
 
 from job_agent.models import (
@@ -21,10 +22,19 @@ from job_agent.config import AutomationConfig
 
 
 class ApplicationAgent:
-    def __init__(self, config: AutomationConfig, screenshots_dir: str = "./output/screenshots"):
+    def __init__(
+        self,
+        config: AutomationConfig,
+        screenshots_dir: str = "./output/screenshots",
+        captcha_event: Optional[threading.Event] = None,
+        captcha_notify_fn: Optional[Callable] = None,
+    ):
         self.config = config
         self.screenshots_dir = Path(screenshots_dir)
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
+        # CAPTCHA pause-gate — wired up from main.py after orchestrator creates this agent
+        self.captcha_event = captcha_event       # threading.Event: set=green, clear=waiting
+        self.captcha_notify_fn = captcha_notify_fn  # sync fn(info:dict) → notifies WS
 
     def apply_batch(self, applications: list) -> list:
         """Run apply_one for a list of Application objects."""
@@ -36,16 +46,19 @@ class ApplicationAgent:
 
     # ── Async implementation ──────────────────────────────────────────────────
 
+    # Persistent browser profile — same dir as main.py uses for login verification
+    BROWSER_PROFILE_DIR = Path(__file__).parent.parent.parent / "output" / "browser_profile"
+
     async def _apply_batch_async(self, applications: list) -> list:
         from playwright.async_api import async_playwright
 
+        self.BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
+            context = await pw.chromium.launch_persistent_context(
+                str(self.BROWSER_PROFILE_DIR),
                 headless=self.config.headless,
                 slow_mo=self.config.slow_mo_ms,
                 args=["--start-maximized"],
-            )
-            context = await browser.new_context(
                 viewport={"width": 1280, "height": 900},
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -64,20 +77,22 @@ class ApplicationAgent:
                 results.append(result)
                 await asyncio.sleep(3)  # Pause between applications
 
-            await browser.close()
+            await context.close()
         return results
 
     async def _apply_one_async(self, application: Application) -> Application:
         from playwright.async_api import async_playwright
 
+        self.BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
+            context = await pw.chromium.launch_persistent_context(
+                str(self.BROWSER_PROFILE_DIR),
                 headless=self.config.headless,
                 slow_mo=self.config.slow_mo_ms,
+                viewport={"width": 1280, "height": 900},
             )
-            context = await browser.new_context(viewport={"width": 1280, "height": 900})
             result = await self._apply_one_with_context(application, context)
-            await browser.close()
+            await context.close()
         return result
 
     async def _apply_one_with_context(self, app: Application, context) -> Application:
@@ -95,14 +110,32 @@ class ApplicationAgent:
                 await self._apply_generic(page, app)
 
         except Exception as e:
-            app.status = ApplicationStatus.FAILED
-            app.error = str(e)
-            print(f"[agent] FAILED: {e}")
+            err = str(e)
+            app.error = err
+            # Classify: needs_manual if human intervention is the only path forward
+            if self._needs_human(err):
+                app.status = ApplicationStatus.NEEDS_MANUAL
+                print(f"[agent] NEEDS MANUAL ({app.job.company}): {err}")
+            else:
+                app.status = ApplicationStatus.FAILED
+                print(f"[agent] FAILED ({app.job.company}): {err}")
             await self._screenshot(page, app, "error")
         finally:
             await page.close()
 
         return app
+
+    def _needs_human(self, error: str) -> bool:
+        """True if the error means a human must apply — not a bug we can retry."""
+        human_signals = [
+            "captcha", "login", "authwall", "sign in", "authentication",
+            "apply button not found", "could not find apply",
+            "workday", "greenhouse", "lever", "icims", "taleo", "smartrecruiters",
+            "indeed apply not available", "external application",
+            "manual", "sponsorship", "visa",
+        ]
+        err_lower = error.lower()
+        return any(s in err_lower for s in human_signals)
 
     # ── Platform handlers ─────────────────────────────────────────────────────
 
@@ -115,8 +148,8 @@ class ApplicationAgent:
 
         # Check for CAPTCHA
         if await self._is_captcha_page(page):
-            await self._handle_captcha(page, app)
-            return
+            if not await self._handle_captcha(page, app):
+                return  # timed out or no gate — needs manual
 
         # Look for "Apply Now" or "Indeed Apply" button
         apply_btn = await page.query_selector(
@@ -146,6 +179,11 @@ class ApplicationAgent:
         while step < max_steps:
             step += 1
             await asyncio.sleep(1)
+
+            # CAPTCHA can appear mid-form after bot detection
+            if await self._is_captcha_page(page):
+                if not await self._handle_captcha(page, app):
+                    return
 
             # Check if we've reached the review/submit page
             if await page.query_selector("button[aria-label='Submit your application']"):
@@ -190,14 +228,14 @@ class ApplicationAgent:
         await self._screenshot(page, app, "loaded")
 
         if await self._is_captcha_page(page):
-            await self._handle_captcha(page, app)
-            return
+            if not await self._handle_captcha(page, app):
+                return
 
         # LinkedIn requires login - check if logged in
         if "login" in page.url or "authwall" in page.url:
-            app.status = ApplicationStatus.FAILED
-            app.error = "LinkedIn requires login. Please log in to LinkedIn in the browser first."
-            print(f"[agent] ERROR: LinkedIn login required. Open the browser and log in.")
+            app.status = ApplicationStatus.NEEDS_MANUAL
+            app.error = "LinkedIn login required — apply manually or log in first"
+            print(f"[agent] LinkedIn login wall hit for {app.job.company} — needs_manual")
             return
 
         # Find Easy Apply button
@@ -229,6 +267,10 @@ class ApplicationAgent:
         for step in range(max_steps):
             await asyncio.sleep(1.5)
             await self._screenshot(page, app, f"linkedin_step_{step}")
+
+            if await self._is_captcha_page(page):
+                if not await self._handle_captcha(page, app):
+                    return
 
             # Check for submit
             submit = await page.query_selector("button[aria-label='Submit application']")
@@ -437,21 +479,127 @@ class ApplicationAgent:
             except Exception as e:
                 print(f"[agent] Warning: could not upload resume: {e}")
 
-    # ── CAPTCHA detection ─────────────────────────────────────────────────────
+    # ── CAPTCHA detection & human-pause flow ─────────────────────────────────
 
     async def _is_captcha_page(self, page) -> bool:
-        content = (await page.content()).lower()
-        return any(x in content for x in ["captcha", "recaptcha", "hcaptcha", "robot", "verify you are human"])
+        """Detect CAPTCHA via page content AND DOM selectors for reliable coverage."""
+        # Fast text scan first
+        try:
+            content = (await page.content()).lower()
+            if any(x in content for x in [
+                "g-recaptcha", "h-captcha", "hcaptcha-widget",
+                "cf-challenge", "checking your browser",
+                "verify you are human", "robot",
+            ]):
+                return True
+        except Exception:
+            pass
 
-    async def _handle_captcha(self, page, app: Application):
-        """Alert user about CAPTCHA and pause."""
-        app.status = ApplicationStatus.FAILED
-        app.error = "CAPTCHA detected - manual intervention required"
-        await self._screenshot(page, app, "captcha")
-        if self.config.pause_on_captcha:
-            print(f"\n[agent] ⚠️  CAPTCHA detected for {app.job.company}!")
-            print(f"[agent]    Please solve it in the browser window, then press ENTER to continue...")
-            input()
+        # Selector-based checks (more precise — catches lazy-loaded widgets)
+        captcha_selectors = [
+            "iframe[src*='recaptcha']",
+            "iframe[src*='hcaptcha']",
+            "iframe[src*='challenges.cloudflare']",
+            ".g-recaptcha",
+            ".h-captcha",
+            "#recaptcha",
+            "[data-sitekey]",
+            "div[class*='captcha']",
+        ]
+        for sel in captcha_selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    return True
+            except Exception:
+                continue
+        return False
+
+    async def _handle_captcha(self, page, app: Application) -> bool:
+        """
+        Pause the bot and wait up to 2 minutes for the human to solve the CAPTCHA.
+        Returns True if solved (continue applying), False if timed out (needs manual).
+
+        Flow:
+          1. Bring the browser window to the front so the user can see it.
+          2. Notify the UI via WebSocket so a "Solve CAPTCHA" card appears.
+          3. Poll every 2 s — resume when:
+               a. captcha_event is set (user clicked "I solved it" in the UI), OR
+               b. The CAPTCHA widget has disappeared from the page.
+          4. On timeout → mark needs_manual (same as before, but user had a chance).
+        """
+        await self._screenshot(page, app, "captcha_detected")
+        print(f"\n{'='*60}")
+        print(f"[agent] ⚠  CAPTCHA detected at {app.job.company}")
+        if self.config.headless:
+            print(f"[agent]    Browser is in HEADLESS mode — you cannot see it.")
+            print(f"[agent]    Set  headless: false  in config.yaml to solve CAPTCHAs.")
+        else:
+            print(f"[agent]    A browser window should appear on your screen.")
+            print(f"[agent]    Solve the CAPTCHA there, then click 'I solved it'")
+            print(f"[agent]    in the Job Agent UI.")
+        print(f"[agent]    Waiting up to 2 minutes...")
+        print(f"{'='*60}\n")
+
+        # Bring the browser to front so user can interact
+        try:
+            await page.bring_to_front()
+        except Exception:
+            pass
+
+        # Notify the frontend via WebSocket
+        if self.captcha_notify_fn:
+            try:
+                self.captcha_notify_fn({
+                    "type": "captcha_detected",
+                    "job_title": app.job.title,
+                    "company": app.job.company,
+                    "url": page.url,
+                    "headless": self.config.headless,
+                })
+            except Exception:
+                pass
+
+        # If no gate is configured, fall back to old behavior
+        if not self.captcha_event:
+            app.status = ApplicationStatus.NEEDS_MANUAL
+            app.error = "CAPTCHA detected — apply manually at the job URL"
+            return False
+
+        # Pause: clear the event so is_set() returns False until user resolves
+        self.captcha_event.clear()
+
+        start = time.time()
+        timeout = 120.0  # 2 minutes
+        solved = False
+        while time.time() - start < timeout:
+            # Yield to event loop every 2 s (non-blocking — Playwright stays responsive)
+            await asyncio.sleep(2)
+            # Check if the UI button was clicked (event set from main thread)
+            if self.captcha_event.is_set():
+                solved = True
+                break
+            # Also check if CAPTCHA widget disappeared naturally from the page
+            if not await self._is_captcha_page(page):
+                solved = True
+                break
+
+        # Reset gate to green for the next CAPTCHA encounter
+        self.captcha_event.set()
+
+        if not solved:
+            app.status = ApplicationStatus.NEEDS_MANUAL
+            app.error = "CAPTCHA not solved within 2 minutes — apply manually"
+            print(f"[agent] CAPTCHA timed out for {app.job.company} — marked needs_manual")
+            return False
+
+        print(f"[agent] ✓ CAPTCHA solved for {app.job.company} — resuming application")
+        # Wait for any redirect/reload that happens after a CAPTCHA clears
+        try:
+            await page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass
+        return True
 
     # ── Screenshot helper ─────────────────────────────────────────────────────
 

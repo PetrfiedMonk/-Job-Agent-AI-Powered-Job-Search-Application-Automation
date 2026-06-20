@@ -1,10 +1,11 @@
-# Config (contains your API key and personal info - NEVER commit this)
+# ── Secrets & personal config (NEVER commit) ──────────────────────────────────
 config.yaml
 
-# Output data (resumes, screenshots, application DB)
+# ── Generated output ───────────────────────────────────────────────────────────
 output/
+startup_error.log
 
-# Python
+# ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -13,11 +14,17 @@ build/
 .venv/
 venv/
 env/
+.env
 
-# Resume files (personal documents)
+# ── Personal documents ─────────────────────────────────────────────────────────
 *.pdf
 *.docx
 
-# OS
+# ── Dev artifacts ──────────────────────────────────────────────────────────────
+*.zip
+_gen_icons_tmp.py
+
+# ── OS ─────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+zizJB6Zi

@@ -1,232 +1,225 @@
-# 🤖 Job Agent — AI-Powered Job Search & Application Automation
+# 🤖 Job Agent
 
-An autonomous AI agent that finds jobs, tailors your resume for each one, and submits applications — all while you sleep.
+An autonomous AI agent that finds jobs, tailors your resume for each one, and submits applications — while you do something better with your time.
 
-Built by [Justin Carano](https://seekbridge.ai), founder of SeekBridge.ai.
+Built by [Justin Carano](https://seekbridge.ai).
 
 ---
 
-## What It Does
+## Install in 2 minutes
 
-Most job hunters send the same resume to 50 companies and hear nothing. This agent does the opposite: it studies each job posting, rewrites your resume to mirror the exact language and keywords the employer used, scores it for ATS compatibility, and submits — automatically.
+### Windows
+```
+1. git clone https://github.com/YOUR_USERNAME/job-agent.git
+2. Double-click  setup.bat
+3. Follow the prompts (vault, resume, API key)
+4. Double-click  start_job_agent.bat
+5. Open http://localhost:8000 in Chrome
+```
 
-**The pipeline:**
+### Mac / Linux
+```bash
+git clone https://github.com/YOUR_USERNAME/job-agent.git
+cd job-agent
+chmod +x setup.sh && ./setup.sh
+./start_job_agent.sh
+```
+Then open **http://localhost:8000** in Chrome.
+
+---
+
+## What setup does
+
+`setup.bat` / `setup.sh` handles everything for a fresh install:
+
+| Step | What happens |
+|------|-------------|
+| Python check | Fails with a download link if Python 3.10+ isn't found |
+| Chrome check | Warns with a download link if Chrome isn't installed |
+| `.venv` | Creates an isolated Python environment |
+| `pip install` | Installs all dependencies from `requirements.txt` |
+| Playwright | Downloads the Chromium browser for automation |
+| Obsidian vault | Creates a new Job Vault with starter notes **OR** lets you point to an existing one |
+| Resume | Asks for your resume path (PDF or DOCX) |
+| API key | Saves your Anthropic key to `config.yaml` |
+| Extension icons | Generates the Chrome extension icons |
+
+---
+
+## Chrome Extension
+
+The **Job Agent extension** lives in the `extension/` folder. It shows your agent status in the browser toolbar and lets you send job postings to your queue from any listing page.
+
+**Install (one time):**
+1. Open Chrome → go to `chrome://extensions`
+2. Enable **Developer mode** (toggle, top-right)
+3. Click **Load unpacked** → select the `extension/` folder
+
+**What it does:**
+- Shows running / idle / offline status in the toolbar badge
+- Detects job postings on LinkedIn, Indeed, ZipRecruiter, Glassdoor
+- "Send to Job Agent" button queues the current job with one click
+- Links directly to the web dashboard
+
+> Run `setup.bat` or `setup.sh` first — it generates the icon files the extension needs.
+
+---
+
+## Obsidian Vault
+
+The agent uses your Obsidian vault as a knowledge base. It reads every note to build a rich understanding of your background, then uses that context to tailor your resume for each job.
+
+**New vault (recommended for new users):** Setup creates a `JobVault` folder with starter templates:
+- Work Experience
+- Skills & Tools
+- Education & Certs
+- Achievements
+- Target Roles
+- Interview Prep
+
+Fill in as much or as little as you want — the more detail, the better the AI can tailor your resume.
+
+**Existing vault:** Just point setup at your current vault folder.
+
+> Obsidian is free at [obsidian.md](https://obsidian.md)
+
+---
+
+## How it works
 
 ```
 Obsidian Vault + Resume
         ↓
-  AI Profile Synthesis  (Claude builds a rich profile from all your knowledge)
+  AI Profile Synthesis   (Claude builds a rich career profile from your notes)
         ↓
   Multi-Platform Search  (Indeed, LinkedIn, ZipRecruiter, Glassdoor)
         ↓
-  AI Job Scoring  (fit score + salary score per posting)
+  AI Job Scoring         (0–100 fit score + salary score per posting)
         ↓
   Per-Job Resume Tailoring  (Claude rewrites your resume for each role)
         ↓
-  DOCX Resume Generation  (clean, ATS-friendly Word document)
+  DOCX Resume Generation    (clean, ATS-ready Word document)
         ↓
-  Playwright Auto-Apply  (fills forms, uploads resume, submits)
+  Playwright Auto-Apply  (fills forms, handles CAPTCHAs, submits)
         ↓
-  SQLite Application Tracker  (full pipeline dashboard)
+  SQLite Application Tracker
 ```
 
 ---
 
 ## Features
 
-- **Obsidian vault integration** — Point it at your vault and it mines your notes for skills, projects, and experience you forgot you had
-- **AI resume tailoring** — Every application gets a resume written specifically for that job, mirroring the posting's language for maximum ATS score
-- **Multi-platform search** — Searches Indeed, LinkedIn, ZipRecruiter, and Glassdoor simultaneously
-- **Intelligent job scoring** — Scores each job 0–100 for fit and salary potential before spending an apply cycle on it
-- **Browser automation** — Handles Indeed Easy Apply, LinkedIn Easy Apply, and generic ATS forms (Greenhouse, Lever, Workday, etc.)
-- **Safe by default** — `auto_submit = false` means forms get filled and screenshotted but nothing is submitted until you say so
-- **Full application tracker** — SQLite database tracks every job found, scored, applied to, and interviewed for
-
----
-
-## Quick Start
-
-### 1. Install
-
-```bash
-git clone https://github.com/YOUR_USERNAME/job-agent.git
-cd job-agent
-
-pip install -r requirements.txt
-python -m playwright install chromium
-```
-
-### 2. Configure
-
-Copy the example config and fill it in:
-
-```bash
-cp config.yaml.example config.yaml
-```
-
-Open `config.yaml` and set:
-
-```yaml
-profile:
-  obsidian_vault_path: "/path/to/your/ObsidianVault"
-  resume_path: "/path/to/your/resume.pdf"
-  name: "Your Name"
-  email: "you@email.com"
-
-ai:
-  anthropic_api_key: "sk-ant-..."   # or set ANTHROPIC_API_KEY env var
-
-search:
-  keywords:
-    - "Product Manager"
-    - "Business Analyst"
-  locations:
-    - "remote"
-    - "Chicago IL"
-  min_salary: 80000
-```
-
-### 3. Test your profile
-
-Before running anything, verify the agent understands your background:
-
-```bash
-python -m job_agent.main test-profile
-```
-
-This shows you the AI-synthesized profile it built from your vault and resume — the foundation for every tailored resume it generates.
-
-### 4. Search and score (no applications yet)
-
-```bash
-python -m job_agent.main search
-```
-
-Finds jobs, scores them, saves to the database. Review what it found before applying.
-
-### 5. Run the full pipeline
-
-```bash
-# Review mode — fills forms but doesn't submit (safe to run anytime)
-python -m job_agent.main run
-
-# Live mode — actually submits applications
-python -m job_agent.main run --live
-```
-
----
-
-## CLI Reference
-
-```
-python -m job_agent.main <command> [options]
-
-Commands:
-  setup           Write a config.yaml template
-  test-profile    Build and display your AI profile
-  search          Search and score jobs only (no applying)
-  apply           Apply to jobs already queued in the database
-  run             Full pipeline: search → score → tailor → apply
-  dashboard       Show current pipeline stats
-
-Options:
-  --config, -c    Path to config file (default: config.yaml)
-  --min-score, -s Minimum fit score to apply (default: 65)
-  --max-apply, -n Max applications per run
-  --live, -l      Enable auto_submit (actually submit applications)
-```
-
----
-
-## Project Structure
-
-```
-job_agent/
-├── main.py              # CLI entry point
-├── config.py            # Configuration management
-├── models.py            # Data models
-├── orchestrator.py      # Main pipeline coordinator
-│
-├── parsers/
-│   ├── vault_parser.py  # Obsidian vault reader & categorizer
-│   └── resume_parser.py # PDF/DOCX resume text extractor
-│
-├── ai/
-│   ├── profile_builder.py  # Synthesizes vault + resume → unified profile
-│   ├── job_scorer.py       # Scores job fit and salary potential
-│   └── resume_tailor.py    # Generates ATS-optimized tailored resumes
-│
-├── builders/
-│   └── resume_builder.py   # Renders TailoredResume → DOCX file
-│
-├── search/
-│   └── job_searcher.py     # Multi-platform job search (jobspy)
-│
-├── automation/
-│   └── application_agent.py  # Playwright form-filler & submitter
-│
-└── db/
-    └── tracker.py          # SQLite application pipeline tracker
-```
-
----
-
-## How the AI Tailoring Works
-
-For each job, the agent:
-
-1. Reads the full job description and extracts required skills and keywords
-2. Loads your complete profile (resume + vault content)
-3. Asks Claude to select the 3–5 most relevant experiences from your history
-4. Rewrites each experience bullet to emphasize outcomes relevant to *this specific role*
-5. Mirrors the exact terminology from the job posting (if they say "roadmap," your resume says "roadmap")
-6. Estimates an ATS match score before generating the final DOCX
-
-The result is a resume that reads like it was written *for that job* — because it was.
-
----
-
-## Safety & Ethics
-
-- **`auto_submit = false` by default.** The agent fills forms and takes screenshots but does not submit until you explicitly enable it with `--live`.
-- **CAPTCHA detection.** If a CAPTCHA is detected, the agent pauses and prompts you to solve it manually.
-- **Rate limiting.** The agent includes polite delays between searches and applications to avoid getting blocked.
-- **No credential storage.** Your API keys and passwords are never written to disk by the agent. LinkedIn sessions use your existing browser profile.
-- This tool is intended for legitimate job seeking. Use responsibly and in accordance with each platform's terms of service.
+- **Gamified UI** — rarity tiers (LEGENDARY / EPIC / RARE), XP system, combo counter, radar scan animations, particle bursts. Job hunting feels like winning, not paperwork.
+- **Obsidian integration** — mines your notes for skills, projects, and experience you forgot you had
+- **AI resume tailoring** — every application gets a resume written for that specific job, mirroring the posting's exact language for maximum ATS score
+- **CAPTCHA handling** — when a CAPTCHA appears, the agent pauses and alerts you (boss fight mode) so you can solve it manually, then resumes automatically
+- **Platform login verification** — the Settings tab checks whether you're logged into LinkedIn and Indeed and opens a login window if not
+- **Safe by default** — `auto_submit: false` means forms get filled and screenshotted but nothing is submitted until you say so
+- **Chrome extension** — see agent status and queue jobs from any job listing page
 
 ---
 
 ## Requirements
 
-- Python 3.10+
-- [Anthropic API key](https://console.anthropic.com) (Claude powers the AI tailoring)
-- Chromium (installed automatically via `playwright install chromium`)
+- **Python 3.10+** — [python.org](https://www.python.org/downloads/)
+- **Google Chrome** — [google.com/chrome](https://www.google.com/chrome/)
+- **Anthropic API key** — [console.anthropic.com](https://console.anthropic.com) (Claude powers the AI)
+- **Obsidian** (optional but recommended) — [obsidian.md](https://obsidian.md)
+
+`setup.bat` checks for all of these and tells you what's missing.
 
 ---
 
-## Configuration Reference
+## Web UI
+
+The web dashboard runs at `http://localhost:8000` after you start the server.
+
+| Tab | What it shows |
+|-----|--------------|
+| Dashboard | Pipeline status, live metrics, Start/Stop controls |
+| Profile | Your AI-synthesized profile from vault + resume |
+| Jobs | All discovered jobs with rarity tier, fit score, salary |
+| Tracker | Full application history |
+| Auto Apply | Jobs queued for submission; CAPTCHA alerts |
+| Config | Job keywords, locations, platforms; platform login status; API key |
+| Logs | Live pipeline log stream |
+
+---
+
+## Configuration
+
+All settings live in `config.yaml` (created by setup) or are editable in the Config tab of the web UI.
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `profile.obsidian_vault_path` | Path to your Obsidian vault folder | — |
+| `profile.obsidian_vault_path` | Path to your Obsidian vault | — |
 | `profile.resume_path` | Path to your resume (PDF or DOCX) | — |
-| `search.keywords` | Job titles / keywords to search | `["Product Manager"]` |
+| `search.keywords` | Job titles to search | `["Product Manager"]` |
 | `search.locations` | Cities or `"remote"` | `["remote"]` |
 | `search.min_salary` | Minimum salary filter | `80000` |
 | `search.platforms` | Platforms to search | `["indeed", "linkedin"]` |
 | `automation.auto_submit` | Actually submit applications | `false` |
 | `automation.headless` | Run browser invisibly | `false` |
 | `automation.max_applications_per_run` | Cap per run | `20` |
+| `ai.anthropic_api_key` | Your Anthropic key (or set env var) | `""` |
 | `ai.model` | Claude model for profile building | `claude-opus-4-8` |
-| `ai.resume_model` | Claude model for tailoring (faster) | `claude-sonnet-4-6` |
+| `ai.resume_model` | Claude model for tailoring | `claude-sonnet-4-6` |
+
+See `config.yaml.example` for the full reference with comments.
+
+---
+
+## Safety & Ethics
+
+- **`auto_submit: false` by default.** Nothing is submitted until you explicitly enable it.
+- **CAPTCHA detection.** The agent pauses and alerts you; you solve it, it continues.
+- **Rate limiting.** Polite delays between searches and applications.
+- **Persistent sessions.** Login cookies are stored in `output/browser_profile/` — never transmitted anywhere.
+- **Local-only.** Config, output, and sessions stay on your machine.
+- This tool is for legitimate job seeking. Use it responsibly and in accordance with each platform's terms of service.
+
+---
+
+## Project Structure
+
+```
+job-agent/
+├── setup.bat              ← Windows installer (run this first)
+├── setup.sh               ← Mac/Linux installer
+├── setup_wizard.py        ← Interactive setup script (called by setup.bat/sh)
+├── start_job_agent.bat    ← Windows launcher
+├── start_job_agent.sh     ← Mac/Linux launcher
+├── config.yaml.example    ← Config reference
+├── requirements.txt       ← Python dependencies
+│
+├── extension/             ← Chrome extension (load unpacked in chrome://extensions)
+│   ├── manifest.json
+│   ├── popup.html / popup.js
+│   ├── background.js
+│   ├── content.js
+│   └── icons/             ← Generated by setup
+│
+├── job_agent/             ← Core pipeline
+│   ├── config.py
+│   ├── orchestrator.py
+│   ├── parsers/           ← vault_parser, resume_parser
+│   ├── ai/                ← profile_builder, job_scorer, resume_tailor
+│   ├── search/            ← job_searcher (jobspy)
+│   ├── automation/        ← application_agent (Playwright)
+│   └── db/                ← tracker (SQLite)
+│
+└── web/
+    ├── backend/main.py    ← FastAPI server
+    └── frontend/index.html ← All-in-one web UI
+```
 
 ---
 
 ## Background
 
-This project grew out of [SeekBridge.ai](https://seekbridge.ai), a web-based job application tool I built and launched. This is the agentic evolution — instead of a web UI, it's a fully autonomous pipeline that runs locally and applies on your behalf.
+This project grew out of [SeekBridge.ai](https://seekbridge.ai) — a job application tool I built and launched. This is the agentic evolution: a fully autonomous pipeline that runs locally and applies on your behalf.
 
-The core insight: volume matters in job hunting, but so does relevance. This agent maximizes both — it can run 20+ tailored applications in the time it takes to manually fill one form.
+The core insight: volume matters in job hunting, but so does relevance. This agent maximizes both.
 
 ---
 
