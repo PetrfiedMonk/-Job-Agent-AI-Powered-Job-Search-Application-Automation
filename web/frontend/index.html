@@ -1865,10 +1865,12 @@
   }
 
   async function openLogin(platform){
-    toast(`Opening ${platform} — log in then click Verify All.`,'ok');
+    toast(`Starting ${platform} login window…`,'ok');
     try{
       const res=await fetch(`${API}/open-login/${platform}`,{method:'POST'});
       if(!res.ok)throw new Error(await res.text());
+      const d=await res.json();
+      toast(d.message||`${platform} browser opening — log in, then click Verify All.`,'ok');
     }catch(e){toast('Could not open login window: '+e.message,'err');}
   }
 

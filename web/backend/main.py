@@ -8,6 +8,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -644,6 +645,11 @@ async def site_pattern(domain: str):
 CONFIG_PATH = Path(__file__).parent.parent.parent / "config.yaml"
 BROWSER_PROFILE_DIR = Path(__file__).parent.parent.parent / "output" / "browser_profile"
 
+# Serialises all access to the Playwright persistent profile directory.
+# Chrome can only have one process per profile dir at a time — without this,
+# get_login_status and open_login race each other and the second one silently fails.
+_playwright_lock = threading.Lock()
+
 @app.get("/api/config")
 async def get_config():
     """Return the current config.yaml as JSON."""
@@ -766,48 +772,88 @@ _LOGIN_OPEN_URLS = {
 }
 
 
-@app.get("/api/login-status")
-async def get_login_status():
-    """Check login state for each platform using the persistent browser profile."""
-    from playwright.async_api import async_playwright
+def _check_login_sync() -> dict:
+    """
+    Runs in a thread (sync Playwright).  The threading.Lock ensures this never
+    runs at the same time as _open_login_sync, so the profile dir is never double-opened.
+    """
+    from playwright.sync_api import sync_playwright
 
     BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     result = {"linkedin": False, "indeed": False}
 
-    try:
-        async with async_playwright() as pw:
-            ctx = await pw.chromium.launch_persistent_context(
-                str(BROWSER_PROFILE_DIR),
-                headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage"],
-            )
+    with _playwright_lock:
+        try:
+            with sync_playwright() as pw:
+                ctx = pw.chromium.launch_persistent_context(
+                    str(BROWSER_PROFILE_DIR),
+                    headless=True,
+                    args=["--no-sandbox", "--disable-dev-shm-usage"],
+                )
 
-            # LinkedIn: /feed/ only loads if logged in
-            try:
-                page = await ctx.new_page()
-                await page.goto("https://www.linkedin.com/feed/", timeout=20000)
-                await page.wait_for_load_state("domcontentloaded", timeout=10000)
-                result["linkedin"] = "/feed" in page.url and "login" not in page.url
-                await page.close()
-            except Exception as ex:
-                logger.debug(f"LinkedIn check error: {ex}")
+                try:
+                    page = ctx.new_page()
+                    page.goto("https://www.linkedin.com/feed/", timeout=20000)
+                    page.wait_for_load_state("domcontentloaded", timeout=10000)
+                    result["linkedin"] = "/feed" in page.url and "login" not in page.url
+                    page.close()
+                except Exception as ex:
+                    logger.debug(f"LinkedIn check: {ex}")
 
-            # Indeed: if login page redirects us to home, we're in
-            try:
-                page = await ctx.new_page()
-                await page.goto("https://www.indeed.com/account/login", timeout=20000)
-                await page.wait_for_load_state("domcontentloaded", timeout=10000)
-                # Logged in → redirected away from /account/login
-                result["indeed"] = "account/login" not in page.url
-                await page.close()
-            except Exception as ex:
-                logger.debug(f"Indeed check error: {ex}")
+                try:
+                    page = ctx.new_page()
+                    page.goto("https://www.indeed.com/account/login", timeout=20000)
+                    page.wait_for_load_state("domcontentloaded", timeout=10000)
+                    result["indeed"] = "account/login" not in page.url
+                    page.close()
+                except Exception as ex:
+                    logger.debug(f"Indeed check: {ex}")
 
-            await ctx.close()
-    except Exception as e:
-        logger.error(f"Login status check failed: {e}")
+                ctx.close()
+        except Exception as e:
+            logger.error(f"Login status check failed: {e}")
 
     return result
+
+
+@app.get("/api/login-status")
+async def get_login_status():
+    """Check login state for each platform (runs in thread, sync Playwright)."""
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _check_login_sync)
+    return result
+
+
+def _open_login_sync(platform: str):
+    """
+    Runs in a daemon thread.  Acquires _playwright_lock so it waits for any
+    in-flight status check to finish before opening the profile dir.
+    Keeps the visible browser open until the user finishes logging in.
+    """
+    from playwright.sync_api import sync_playwright
+
+    with _playwright_lock:
+        try:
+            with sync_playwright() as pw:
+                ctx = pw.chromium.launch_persistent_context(
+                    str(BROWSER_PROFILE_DIR),
+                    headless=False,
+                    args=["--start-maximized", "--no-first-run"],
+                )
+                page = ctx.new_page()
+                page.goto(_LOGIN_OPEN_URLS[platform])
+                # Wait up to 5 minutes for the URL to leave the login page
+                try:
+                    page.wait_for_url(
+                        lambda url: "login" not in url,
+                        timeout=300_000,
+                    )
+                except Exception:
+                    pass
+                time.sleep(3)   # let session cookies settle
+                ctx.close()
+        except Exception as e:
+            logger.error(f"open-login/{platform}: {e}")
 
 
 @app.post("/api/track-job")
@@ -830,38 +876,18 @@ async def track_job(body: dict):
 
 @app.post("/api/open-login/{platform}")
 async def open_login(platform: str):
-    """Open a visible browser window so the user can log into a platform and save the session."""
+    """Open a visible Chromium window so the user can log in and save the session."""
     if platform not in _LOGIN_OPEN_URLS:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
-    from playwright.async_api import async_playwright
-
     BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
-    async def _run():
-        try:
-            async with async_playwright() as pw:
-                ctx = await pw.chromium.launch_persistent_context(
-                    str(BROWSER_PROFILE_DIR),
-                    headless=False,
-                    args=["--start-maximized"],
-                )
-                page = await ctx.new_page()
-                await page.goto(_LOGIN_OPEN_URLS[platform])
-                # Wait up to 5 minutes for the URL to leave the login page
-                try:
-                    await page.wait_for_url(
-                        lambda url: "login" not in url,
-                        timeout=300_000,
-                    )
-                except Exception:
-                    pass  # timed out — user may still be logging in
-                await asyncio.sleep(3)  # let session cookies settle
-                await ctx.close()
-        except Exception as e:
-            logger.error(f"open-login/{platform} failed: {e}")
+    if _playwright_lock.locked():
+        msg = "Browser is busy (login check in progress). It will open in a few seconds."
+        return {"ok": True, "message": msg}
 
-    asyncio.create_task(_run())
+    t = threading.Thread(target=_open_login_sync, args=(platform,), daemon=True)
+    t.start()
     return {"ok": True, "message": f"Opening {platform} login window…"}
 
 
