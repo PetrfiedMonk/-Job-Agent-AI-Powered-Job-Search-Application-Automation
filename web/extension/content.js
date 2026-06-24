@@ -16,6 +16,7 @@
   let fills = [];
   let editedAnswers = {};
   let jobContext = null;
+  let _submitLogged = false;
 
   const DOMAIN = window.location.hostname.replace(/^www\./, '');
 
@@ -161,6 +162,244 @@
     if (signals.some(s => url.includes(s))) return true;
     return !!(document.querySelector('input[name*="name" i],input[placeholder*="name" i]') &&
               document.querySelector('input[type=email],input[name*="email" i]'));
+  }
+
+  // ── Auto-log application on submit ────────────────────────────────────────
+
+  async function logApplication() {
+    if (_submitLogged) return;
+    _submitLogged = true;
+    const ctx = jobContext || detectJobContext();
+    try {
+      const res = await apiCall('/extension/log-application', 'POST', {
+        url: ctx.url, title: ctx.title, company: ctx.company,
+        fields_filled: fills.filter(f => f.value && f.value !== '__resume__' && f.value !== '__file__').length,
+      });
+      if (shadow) {
+        const body = shadow.getElementById('body');
+        if (body) {
+          const el = document.createElement('div');
+          el.style.cssText = 'background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:9px 12px;font-size:11px;color:#34d399;text-align:center;margin-bottom:4px';
+          el.textContent = res.is_new_job ? '✓ New job added & application tracked' : '✓ Application logged in your pipeline';
+          body.prepend(el);
+          setStatus(shadow, 'd-ok', 'Application logged ✓', 'b-instant', '✓ tracked');
+        }
+      }
+    } catch (_e) {
+      _submitLogged = false; // allow retry if backend was down
+    }
+  }
+
+  function setupSubmitWatcher() {
+    // Real form submits (standard ATS systems)
+    document.addEventListener('submit', () => {
+      if (fills.length > 0) logApplication();
+    }, true);
+
+    // SPA submit buttons (LinkedIn Easy Apply, Greenhouse, Lever, etc.)
+    document.addEventListener('click', (e) => {
+      if (fills.length === 0 || _submitLogged) return;
+      const el = e.target.closest('button,[type=submit]');
+      if (!el) return;
+      const text = (el.textContent || el.value || '').toLowerCase().trim();
+      if (/\b(submit application|submit|apply now|send application|complete application)\b/.test(text)) {
+        logApplication();
+      }
+    }, true);
+  }
+
+  // ── Fit Radar — Job Listing Discovery Mode ────────────────────────────────
+
+  function isJobListingPage() {
+    const u = location.href.toLowerCase();
+    return (
+      (u.includes('linkedin.com')     && (u.includes('/jobs/search') || u.includes('/jobs/collections'))) ||
+      (u.includes('indeed.com')       && (u.includes('/jobs?')       || u.includes('/jobs/'))) ||
+      (u.includes('glassdoor.com')    && (u.includes('/job-listing') || u.includes('/jobs/'))) ||
+      (u.includes('ziprecruiter.com') && u.includes('/jobs'))
+    );
+  }
+
+  function extractJobCards() {
+    const u = location.href.toLowerCase();
+    const cards = [];
+
+    if (u.includes('linkedin.com')) {
+      for (const el of document.querySelectorAll(
+        'li.jobs-search-results__list-item, li.scaffold-layout__list-item'
+      )) {
+        const titleEl   = el.querySelector('a.job-card-list__title, .job-card-list__title--link, .base-search-card__title a, .base-search-card__title');
+        const companyEl = el.querySelector('.job-card-container__company-name, .artdeco-entity-lockup__subtitle, .base-search-card__subtitle');
+        const locEl     = el.querySelector('.job-card-container__metadata-item, .job-search-card__location');
+        const linkEl    = el.querySelector('a[href*="/jobs/view"]') || titleEl;
+        if (!titleEl || !linkEl) continue;
+        cards.push({
+          el,
+          url:      (linkEl.href || '').split('?')[0],
+          title:    titleEl.textContent.trim(),
+          company:  (companyEl?.textContent || '').trim(),
+          location: (locEl?.textContent || '').trim(),
+        });
+      }
+    } else if (u.includes('indeed.com')) {
+      for (const el of document.querySelectorAll('.job_seen_beacon, [data-jk]')) {
+        const titleEl   = el.querySelector('h2.jobTitle a, .jobTitle a, h2.jobTitle');
+        const companyEl = el.querySelector('[data-testid="company-name"], .companyName');
+        const locEl     = el.querySelector('[data-testid="text-location"], .companyLocation');
+        const jk        = el.getAttribute('data-jk');
+        if (!titleEl) continue;
+        cards.push({
+          el,
+          url:      jk ? `https://www.indeed.com/viewjob?jk=${jk}` : (titleEl.href || ''),
+          title:    titleEl.textContent.trim(),
+          company:  (companyEl?.textContent || '').trim(),
+          location: (locEl?.textContent || '').trim(),
+        });
+      }
+    } else if (u.includes('glassdoor.com')) {
+      for (const el of document.querySelectorAll('li[data-test="jobListing"], [class*="JobCard_jobCard"]')) {
+        const titleEl   = el.querySelector('a[data-test="job-title"], [class*="JobCard_seoLink"]');
+        const companyEl = el.querySelector('[class*="EmployerProfile_profileContainer"], [data-test="employer-name"]');
+        if (!titleEl) continue;
+        cards.push({
+          el,
+          url:      (titleEl.href || '').split('?')[0],
+          title:    titleEl.textContent.trim(),
+          company:  (companyEl?.textContent || '').trim(),
+          location: '',
+        });
+      }
+    } else if (u.includes('ziprecruiter.com')) {
+      for (const el of document.querySelectorAll('article.job_result, .job_result')) {
+        const titleEl   = el.querySelector('.job_result_title a');
+        const companyEl = el.querySelector('.hiring_company_text, .t_org_link');
+        if (!titleEl) continue;
+        cards.push({
+          el,
+          url:      titleEl.href || '',
+          title:    titleEl.textContent.trim(),
+          company:  (companyEl?.textContent || '').trim(),
+          location: '',
+        });
+      }
+    }
+
+    return cards;
+  }
+
+  function injectBadge(cardEl, result) {
+    if (cardEl.querySelector('[data-ja-radar]')) return;
+    const s     = result.score;
+    const color = s >= 80 ? '#22d3ee' : s >= 60 ? '#34d399' : s >= 40 ? '#f59e0b' : '#ef4444';
+    const tier  = s >= 80 ? '🔥 Hot'  : s >= 60 ? '✓ Fit'   : s >= 40 ? '~ Weak'  : '✗ Skip';
+
+    const wrap = document.createElement('div');
+    wrap.setAttribute('data-ja-radar', 'true');
+    wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;';
+
+    const badge = document.createElement('span');
+    badge.style.cssText = `display:inline-flex;align-items:center;gap:4px;background:rgba(13,22,40,.93);border:1px solid ${color}55;border-radius:5px;padding:3px 8px;font-family:Inter,system-ui,sans-serif;font-size:10px;font-weight:700;color:${color};box-shadow:0 1px 6px rgba(0,0,0,.3);`;
+    badge.innerHTML = `<span>${tier}</span><span style="color:#94a3b8;font-weight:400;font-size:9px">${s}/100</span>`;
+    if (result.matched_keywords?.length) {
+      const kw = document.createElement('span');
+      kw.style.cssText = 'color:#64748b;font-size:9px;font-weight:400;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      kw.title = result.matched_keywords.join(', ');
+      kw.textContent = '· ' + result.matched_keywords[0];
+      badge.appendChild(kw);
+    }
+
+    const addBtn = document.createElement('button');
+    addBtn.style.cssText = 'background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#818cf8;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700;cursor:pointer;font-family:Inter,system-ui,sans-serif;line-height:1.5;';
+    addBtn.textContent = '+ Pipeline';
+    addBtn.onclick = async (e) => {
+      e.stopPropagation(); e.preventDefault();
+      addBtn.disabled = true;
+      addBtn.textContent = '…';
+      try {
+        const r = await apiCall('/jobs/add-to-pipeline', 'POST', {
+          url: result.url, title: result.title, company: result.company,
+          location: result.location, score: result.score,
+        });
+        addBtn.textContent = r.is_new ? '✓ Added' : '✓ Tracked';
+        addBtn.style.color = '#34d399';
+        addBtn.style.borderColor = 'rgba(52,211,153,.3)';
+        addBtn.style.background  = 'rgba(52,211,153,.08)';
+      } catch (_e) {
+        addBtn.textContent = '✗ Error';
+        addBtn.disabled = false;
+      }
+    };
+
+    wrap.appendChild(badge);
+    wrap.appendChild(addBtn);
+
+    const anchor = cardEl.querySelector('.job-card-list__title, .base-search-card__title, h2.jobTitle, [data-test="job-title"], .job_result_title, h2, h3') || cardEl;
+    if (anchor.after) anchor.after(wrap);
+    else if (anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
+  }
+
+  let _radarRunning = false;
+  async function injectFitRadar() {
+    if (_radarRunning) return;
+    _radarRunning = true;
+    try {
+      const cards = extractJobCards();
+      if (!cards.length) return;
+
+      const fresh = cards.filter(c => !c.el.querySelector('[data-ja-radar]') && c.url);
+      if (!fresh.length) return;
+
+      const jobs = fresh.map(c => ({ url: c.url, title: c.title, company: c.company, location: c.location, description: '' }));
+      const res  = await apiCall('/jobs/score-preview', 'POST', { jobs });
+
+      const byUrl = {};
+      for (const r of (res.results || [])) byUrl[r.url] = r;
+
+      for (const card of fresh) {
+        const result = byUrl[card.url];
+        if (result) injectBadge(card.el, result);
+      }
+
+      if (shadow) {
+        const total = cards.length;
+        const hot   = (res.results || []).filter(r => r.score >= 80).length;
+        setStatus(shadow, 'd-ok',
+          `Fit Radar: ${total} jobs scored${hot ? ` · ${hot} hot` : ''}`,
+          'b-instant', `${total} scanned`
+        );
+        const body = shadow.getElementById('body');
+        if (body) {
+          body.innerHTML = `
+            <div style="text-align:center;padding:18px 12px;display:flex;flex-direction:column;gap:10px;align-items:center">
+              <div style="font-size:26px">🎯</div>
+              <div style="font-size:13px;font-weight:700;color:#e2e8f0">Fit Radar Active</div>
+              <div style="font-size:11px;color:#64748b;line-height:1.6">${total} jobs scored · click <strong style="color:#818cf8">+ Pipeline</strong> on any card to track it</div>
+              ${hot ? `<div style="background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.15);border-radius:8px;padding:8px 14px;font-size:11px;color:#22d3ee;font-weight:700">${hot} 🔥 hot match${hot === 1 ? '' : 'es'} on this page</div>` : ''}
+            </div>`;
+        }
+        // Swap footer buttons for listing mode
+        const fillBtn  = shadow.getElementById('fill-btn');
+        const learnBtn = shadow.getElementById('learn-btn');
+        if (fillBtn) {
+          fillBtn.textContent = '🔄 Rescan Page';
+          fillBtn.onclick = () => { _radarRunning = false; injectFitRadar(); };
+        }
+        if (learnBtn) learnBtn.style.display = 'none';
+      }
+    } catch (_e) {
+      // silently fail — server may not be running
+    } finally {
+      _radarRunning = false;
+    }
+  }
+
+  function setupListingWatcher() {
+    let _bounce;
+    const obs = new MutationObserver(() => {
+      clearTimeout(_bounce);
+      _bounce = setTimeout(() => { _radarRunning = false; injectFitRadar(); }, 700);
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
   }
 
   // ── API bridge ─────────────────────────────────────────────────────────────
@@ -568,6 +807,7 @@
   // ── Learn ──────────────────────────────────────────────────────────────────
 
   async function doLearn(sh) {
+    logApplication(); // idempotent — no-op if already logged via form submit
     const btn = sh.getElementById('learn-btn');
     btn.disabled = true;
     btn.textContent = 'Saving…';
@@ -635,10 +875,15 @@
 
   if (isJobPage()) {
     if (!shadow) shadow = createShadow();
+    setupSubmitWatcher();
     setTimeout(() => {
       toggle(true);
       if (shadow) setStatus(shadow, 'd-ok', 'Job application page detected — ready to fill');
     }, 900);
+  } else if (isJobListingPage()) {
+    if (!shadow) shadow = createShadow();
+    setupListingWatcher();
+    setTimeout(injectFitRadar, 1200); // let the page finish rendering first
   }
 
 })();

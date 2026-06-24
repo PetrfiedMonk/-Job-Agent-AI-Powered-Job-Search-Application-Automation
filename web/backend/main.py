@@ -308,6 +308,127 @@ async def get_jobs(status: Optional[str] = None, limit: int = 50) -> list[JobRes
         logger.error(f"Failed to fetch jobs: {e}")
         return []
 
+@app.post("/api/jobs/score-preview")
+async def jobs_score_preview(body: dict):
+    """
+    Fast batch keyword scoring for the Fit Radar browser extension feature.
+    No AI calls — pure keyword/skill matching against config + profile cache.
+    Returns in <50ms for a full page of 20 job cards.
+
+    Body: {jobs: [{url, title, company, location, description}]}
+    Returns: {results: [{url, title, company, location, score, fit_level,
+                         matched_keywords, matched_skills}]}
+    """
+    jobs = body.get("jobs") or []
+    if not jobs:
+        return {"results": [], "total": 0}
+
+    # Keywords from config (fast path — already in memory)
+    keywords: list = []
+    if config and hasattr(config, "search") and config.search.keywords:
+        keywords = [k.lower() for k in config.search.keywords]
+
+    # Skills from profile cache (file read, ~1ms)
+    skills: list = []
+    if agent:
+        try:
+            p = agent._load_profile_cache() if not agent.profile else agent.profile
+            if p and p.skills:
+                skills = [s.lower() for s in p.skills[:40]]
+        except Exception:
+            pass
+
+    results = []
+    for job in jobs[:50]:                         # cap batch at 50 cards
+        url      = (job.get("url")         or "").strip()
+        title    = (job.get("title")       or "").strip()
+        company  = (job.get("company")     or "").strip()
+        location = (job.get("location")    or "").strip()
+        desc     = (job.get("description") or "").lower()
+
+        title_l  = title.lower()
+        combined = title_l + " " + desc
+
+        title_kw = [kw for kw in keywords if kw in title_l]
+        desc_kw  = [kw for kw in keywords if kw in desc and kw not in title_kw]
+        m_skills = [s for s in skills if len(s) > 3 and s in combined][:8]
+
+        n_kw      = max(1, len(keywords))
+        title_pts = min(55.0, (len(title_kw) / n_kw) * 110)   # title match = 2× weight
+        desc_pts  = min(25.0, (len(desc_kw)  / n_kw) * 25)
+        skill_pts = min(20.0, (len(m_skills)  / 5)   * 20)
+
+        score = int(title_pts + desc_pts + skill_pts)
+        if not title_kw and not desc_kw:
+            score = min(score, 25)             # no keyword match at all → floor at skip
+        score = max(5, min(95, score))
+
+        fit_level = ("hot"  if score >= 80 else
+                     "good" if score >= 60 else
+                     "weak" if score >= 40 else "skip")
+
+        results.append({
+            "url":              url,
+            "title":            title,
+            "company":          company,
+            "location":         location,
+            "score":            score,
+            "fit_level":        fit_level,
+            "matched_keywords": [kw.title() for kw in title_kw + desc_kw][:4],
+            "matched_skills":   m_skills[:4],
+        })
+
+    return {"results": results, "total": len(results)}
+
+
+@app.post("/api/jobs/add-to-pipeline")
+async def add_to_pipeline(body: dict):
+    """
+    Called by Fit Radar when the user clicks '+ Pipeline' on a job card.
+    Creates a minimal job record so it appears in the dashboard for follow-up.
+    """
+    url      = (body.get("url")      or "").strip()
+    title    = (body.get("title")    or "Unknown").strip()
+    company  = (body.get("company")  or "Unknown").strip()
+    location = (body.get("location") or "").strip()
+    score    = min(100, max(0, int(body.get("score") or 0)))
+
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    t = ApplicationTracker()
+    with t._connect() as conn:
+        row = conn.execute("SELECT id FROM jobs WHERE url=? LIMIT 1", (url,)).fetchone()
+    if row:
+        return {"ok": True, "job_id": row["id"], "is_new": False, "message": "Already in pipeline"}
+
+    import uuid as _uuid_pl
+    from job_agent.models import JobPosting as _JP_pl, JobPlatform as _JPF_pl
+    job_id = str(_uuid_pl.uuid4())
+    url_l  = url.lower()
+    plat   = ("linkedin"    if "linkedin"    in url_l else
+              "glassdoor"   if "glassdoor"   in url_l else
+              "ziprecruiter"if "ziprecruiter"in url_l else
+              "indeed"      if "indeed"      in url_l else "company")
+    try:
+        plat_enum = _JPF_pl(plat)
+    except ValueError:
+        plat_enum = _JPF_pl.COMPANY
+
+    t.upsert_job(_JP_pl(
+        id=job_id, title=title, company=company, location=location,
+        description="[Discovered via Fit Radar]",
+        url=url, platform=plat_enum,
+        fit_score=float(score), combined_score=float(score),
+    ))
+
+    msg = f"[extension] Fit Radar → pipeline: {title} @ {company}"
+    logger.info(msg)
+    log_buffer.append({"level": "info", "message": msg, "timestamp": datetime.now().isoformat()})
+
+    return {"ok": True, "job_id": job_id, "is_new": True, "message": f"{title} added to pipeline"}
+
+
 @app.post("/api/start-search")
 async def start_search(settings: Optional[SearchSettings] = None):
     """Start a job search in the background"""
@@ -1478,6 +1599,77 @@ async def field_intelligence():
     return semantics_db.get_stats()
 
 
+@app.get("/api/playbook")
+async def get_playbook():
+    """
+    Return the full answer playbook — all cached question answers,
+    user-curated entries first, then AI-generated by usage frequency.
+    """
+    if not semantics_db:
+        raise HTTPException(status_code=503, detail="Semantics DB not ready")
+    entries = semantics_db.list_playbook()
+    # Humanize canonical_type for display (question.why_us → "Why Us")
+    for e in entries:
+        raw = e.get("canonical_type", "")
+        e["label"] = raw.replace("question.", "").replace("_", " ").title()
+    return {"entries": entries, "total": len(entries)}
+
+
+@app.post("/api/playbook")
+async def save_playbook_answer(body: dict):
+    """
+    Save or update a question answer in the playbook.
+    User-saved answers take priority over AI-generated ones on future fills.
+
+    Body: {
+      canonical_type: str   — e.g. "question.why_us"
+      label: str            — human label from the form field
+      answer: str           — the answer text to save
+      company: str          — optional, scopes the answer to a specific company
+      job_title: str        — optional context
+    }
+    """
+    if not semantics_db:
+        raise HTTPException(status_code=503, detail="Semantics DB not ready")
+
+    canonical_type = (body.get("canonical_type") or "").strip()
+    answer         = (body.get("answer") or "").strip()
+    label          = (body.get("label") or "").strip()
+    company        = (body.get("company") or "").strip()
+    job_title      = (body.get("job_title") or "").strip()
+
+    if not canonical_type or not answer:
+        raise HTTPException(status_code=400, detail="canonical_type and answer are required")
+    if len(answer) < 5:
+        raise HTTPException(status_code=400, detail="answer too short")
+
+    # If caller only provides a label (no canonical_type prefix), normalize it
+    if not canonical_type.startswith("question."):
+        canonical_type = "question." + canonical_type.lower().replace(" ", "_")
+
+    entry_id = semantics_db.save_to_playbook(canonical_type, label, answer, company, job_title)
+
+    return {
+        "ok": True,
+        "id": entry_id,
+        "canonical_type": canonical_type,
+        "company": company,
+        "word_count": len(answer.split()),
+        "message": f"Saved to playbook — will be used on future '{canonical_type}' questions" + (f" at {company}" if company else ""),
+    }
+
+
+@app.delete("/api/playbook/{entry_id}")
+async def delete_playbook_answer(entry_id: str):
+    """Remove an entry from the answer playbook."""
+    if not semantics_db:
+        raise HTTPException(status_code=503, detail="Semantics DB not ready")
+    deleted = semantics_db.delete_playbook_entry(entry_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"ok": True, "deleted": entry_id}
+
+
 @app.get("/api/site-pattern/{domain:path}")
 async def site_pattern(domain: str):
     """Field intelligence stats for a specific domain (submission history)."""
@@ -2079,6 +2271,63 @@ async def track_job(body: dict):
     log_buffer.append({"level": "info", "message": msg, "timestamp": datetime.now().isoformat()})
     await manager.broadcast(json.dumps({"level": "info", "message": msg, "timestamp": datetime.now().isoformat()}))
     return {"ok": True, "message": "Job tracked — it will appear in your next search run."}
+
+
+@app.post("/api/extension/log-application")
+async def extension_log_application(body: dict):
+    """
+    Called by the extension when the user submits a job application form.
+    Finds the job by URL (or creates a minimal record) then marks it applied.
+    """
+    url = (body.get("url") or "").strip()
+    title = (body.get("title") or "Unknown Title").strip()
+    company = (body.get("company") or "Unknown Company").strip()
+
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    tracker = ApplicationTracker()
+
+    # Try to find existing job by URL
+    with tracker._connect() as conn:
+        row = conn.execute("SELECT id FROM jobs WHERE url = ? LIMIT 1", (url,)).fetchone()
+
+    is_new_job = False
+    if row:
+        job_id = row["id"]
+    else:
+        import uuid as _uuid_ext
+        from job_agent.models import JobPosting as _JPext, JobPlatform as _JPFext
+
+        job_id = str(_uuid_ext.uuid4())
+        url_lower = url.lower()
+        if "linkedin" in url_lower:       plat = "linkedin"
+        elif "glassdoor" in url_lower:    plat = "glassdoor"
+        elif "ziprecruiter" in url_lower: plat = "ziprecruiter"
+        elif "indeed" in url_lower:       plat = "indeed"
+        else:                             plat = "company"
+
+        new_job = _JPext(
+            id=job_id, title=title, company=company,
+            location="", description="[Applied via browser extension]",
+            url=url, platform=_JPFext(plat),
+        )
+        tracker.upsert_job(new_job)
+        is_new_job = True
+
+    tracker.mark_applied_manually(job_id)
+
+    msg = f"[extension] Application logged: {title} @ {company}"
+    logger.info(msg)
+    log_buffer.append({"level": "info", "message": msg, "timestamp": datetime.now().isoformat()})
+    await manager.broadcast(json.dumps({"level": "info", "message": msg, "timestamp": datetime.now().isoformat()}))
+
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "is_new_job": is_new_job,
+        "message": f"Application logged — {title} @ {company}",
+    }
 
 
 @app.post("/api/open-login/{platform}")

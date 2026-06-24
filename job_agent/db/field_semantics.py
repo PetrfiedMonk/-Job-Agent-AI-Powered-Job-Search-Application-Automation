@@ -161,6 +161,12 @@ class FieldSemanticsDB:
                 CREATE INDEX IF NOT EXISTS idx_sub_domain ON form_submissions(domain);
             """)
 
+            # Additive migration: source column distinguishes user-edited answers from AI-generated ones
+            try:
+                conn.execute("ALTER TABLE answer_cache ADD COLUMN source TEXT DEFAULT 'ai'")
+            except Exception:
+                pass  # already exists
+
     # ── Fingerprinting ─────────────────────────────────────────────────────────
 
     @staticmethod
@@ -252,15 +258,18 @@ class FieldSemanticsDB:
 
     def get_cached_answer(self, canonical_type: str, company: str = "") -> Optional[str]:
         """
-        Return a cached AI answer for this question type.
-        Prefers company-specific, falls back to generic.
+        Return a cached answer for this question type.
+        Priority: user-edited > company-specific AI > generic AI.
         """
         with self._connect() as conn:
             row = conn.execute("""
                 SELECT answer, id FROM answer_cache
                 WHERE canonical_type = ?
                   AND (company = ? OR company = '')
-                ORDER BY CASE WHEN company = ? THEN 0 ELSE 1 END, used_count DESC
+                ORDER BY
+                  CASE WHEN COALESCE(source,'ai') = 'user' THEN 0 ELSE 1 END,
+                  CASE WHEN company = ? THEN 0 ELSE 1 END,
+                  used_count DESC
                 LIMIT 1
             """, (canonical_type, company, company)).fetchone()
 
@@ -277,22 +286,77 @@ class FieldSemanticsDB:
 
     def cache_answer(self, canonical_type: str, company: str,
                      job_title: str, answer: str):
-        """Save an AI-generated answer for future reuse."""
+        """Save an AI-generated answer for future reuse. Never overwrites user-edited playbook entries."""
         now = datetime.now().isoformat()
         word_count = len(answer.split())
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO answer_cache
-                    (id, canonical_type, company, job_title, answer, word_count, created_at, used_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                    (id, canonical_type, company, job_title, answer, word_count, created_at, used_count, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'ai')
                 ON CONFLICT(canonical_type, company) DO UPDATE SET
-                    answer=excluded.answer,
-                    job_title=excluded.job_title,
-                    word_count=excluded.word_count,
-                    created_at=excluded.created_at
+                    answer    = CASE WHEN COALESCE(answer_cache.source,'ai')='user' THEN answer_cache.answer    ELSE excluded.answer    END,
+                    job_title = CASE WHEN COALESCE(answer_cache.source,'ai')='user' THEN answer_cache.job_title ELSE excluded.job_title END,
+                    word_count= CASE WHEN COALESCE(answer_cache.source,'ai')='user' THEN answer_cache.word_count ELSE excluded.word_count END,
+                    created_at= CASE WHEN COALESCE(answer_cache.source,'ai')='user' THEN answer_cache.created_at ELSE excluded.created_at END
             """, (str(uuid.uuid4()), canonical_type, company,
                   job_title, answer, word_count, now))
             conn.commit()
+
+    # ── Answer Playbook (user-curated) ────────────────────────────────────────
+
+    def save_to_playbook(self, canonical_type: str, label: str, answer: str,
+                         company: str = "", job_title: str = "") -> str:
+        """
+        Save or update a user-edited answer in the playbook.
+        User answers take priority over AI-generated ones in get_cached_answer().
+        Returns the entry ID.
+        """
+        now = datetime.now().isoformat()
+        word_count = len(answer.split())
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT id FROM answer_cache WHERE canonical_type=? AND company=?",
+                (canonical_type, company)
+            ).fetchone()
+            if existing:
+                conn.execute("""
+                    UPDATE answer_cache
+                    SET answer=?, word_count=?, job_title=?, source='user', created_at=?
+                    WHERE id=?
+                """, (answer, word_count, job_title, now, existing["id"]))
+                conn.commit()
+                return existing["id"]
+            else:
+                entry_id = str(uuid.uuid4())
+                conn.execute("""
+                    INSERT INTO answer_cache
+                    (id, canonical_type, company, job_title, answer, word_count, created_at, used_count, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'user')
+                """, (entry_id, canonical_type, company, job_title, answer, word_count, now))
+                conn.commit()
+                return entry_id
+
+    def list_playbook(self) -> List[dict]:
+        """Return all answer_cache entries; user-edited first, then by usage."""
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT id, canonical_type, company, job_title, answer,
+                       word_count, created_at, used_count,
+                       COALESCE(source, 'ai') as source
+                FROM answer_cache
+                ORDER BY
+                  CASE WHEN COALESCE(source,'ai') = 'user' THEN 0 ELSE 1 END,
+                  used_count DESC
+            """).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_playbook_entry(self, entry_id: str) -> bool:
+        """Remove an entry from the answer cache/playbook."""
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM answer_cache WHERE id=?", (entry_id,))
+            conn.commit()
+        return cursor.rowcount > 0
 
     # ── Stats / Admin ──────────────────────────────────────────────────────────
 

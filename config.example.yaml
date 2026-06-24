@@ -1,0 +1,64 @@
+profile:
+  obsidian_vault_path: C:\Users\YourName\Documents\Obsidian Vault
+  resume_path: C:\Users\YourName\Documents\resumes\Resume.pdf
+  name: Your Full Name
+  email: your@email.com
+  phone: '1234567890'
+  location: City, ST
+  address_line1: 123 Main St
+  address_line2: ''
+  city: Your City
+  state: ST
+  zip_code: '00000'
+  country: United States
+  work_authorization: US Citizen
+  linkedin_url: https://www.linkedin.com/in/yourprofile/
+  github_url: https://github.com/yourusername
+  website: https://yourwebsite.com
+
+search:
+  keywords:
+  - Product Manager
+  - Senior Product Manager
+  - AI Product Manager
+  locations:
+  - remote
+  platforms:
+  - indeed
+  - linkedin
+  max_results_per_search: 25
+  min_salary: 80000
+  job_types:
+  - fulltime
+  exclude_companies: []
+  exclude_keywords:
+  - staffing agency
+  - temp agency
+  allowed_countries:
+  - United States
+
+ai:
+  model: claude-opus-4-8
+  resume_model: claude-sonnet-4-6
+  anthropic_api_key: sk-ant-YOUR_KEY_HERE
+
+automation:
+  headless: false
+  slow_mo_ms: 200
+  timeout_ms: 30000
+  max_applications_per_run: 20
+  pause_on_captcha: true
+  auto_submit: false
+  screenshot_on_apply: true
+  min_score_to_apply: 70
+  auto_cover_letter: false
+  manual_only_platforms:
+  - indeed
+  - linkedin
+
+output:
+  output_dir: ./output
+  resumes_dir: ./output/resumes
+  screenshots_dir: ./output/screenshots
+  db_path: ./output/applications.db
+  resume_template: modern
