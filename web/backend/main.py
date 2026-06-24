@@ -3393,7 +3393,7 @@ async def get_next_action():
             ).fetchone()[0]
             conn.close()
             if needs_manual:
-                return {"action": f"{needs_manual} application(s) need your help to complete", "icon": "⚠", "btn_label": "View in War Room", "btn_action": "showTab('war-room',document.getElementById('nav-war-room'))"}
+                return {"action": f"{needs_manual} application{'' if needs_manual == 1 else 's'} ready for manual apply", "icon": "📋", "btn_label": "Open War Room", "btn_action": "showTab('war-room',document.getElementById('nav-war-room'))"}
 
         return {"action": "Run a job search to find new opportunities", "icon": "🎯", "btn_label": "Hunt Jobs", "btn_action": "startSearch()"}
     except Exception as e:

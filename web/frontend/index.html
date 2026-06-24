@@ -926,6 +926,7 @@
           <div class="na-text" id="na-text">Loading…</div>
         </div>
         <button class="btn btn-primary na-btn" id="na-btn">Go →</button>
+        <button onclick="document.getElementById('next-action-card').style.display='none'" title="Dismiss" style="background:none;border:none;color:var(--text-3);font-size:1.1rem;cursor:pointer;padding:.2rem .45rem;margin-left:.15rem;line-height:1;flex-shrink:0;opacity:.6;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.6">×</button>
       </div>
 
       <!-- Live Run Score (shown during active run) -->
@@ -2190,7 +2191,7 @@
       const job=allJobs.find(j=>String(j.id)===String(jobId));
       if(job)job.status='applied';
       toast('Marked as applied','ok');
-      renderJobs();renderTracker();
+      renderJobs();renderTracker();loadNextAction();
     }catch(e){
       btn.disabled=false;btn.textContent=orig;
       toast('Could not mark applied: '+e.message,'err');
@@ -4334,7 +4335,8 @@
     try{
       const d=await fetch(`${API}/next-action`).then(r=>r.json());
       const card=document.getElementById('next-action-card');
-      if(!card||!d.action)return;
+      if(!card)return;
+      if(!d.action){card.style.display='none';return;}  // hide when nothing to do
       card.style.display='flex';
       const ico=document.getElementById('na-icon');
       const txt=document.getElementById('na-text');
@@ -4343,7 +4345,8 @@
       if(txt)txt.textContent=d.action;
       if(btn){
         btn.textContent=d.btn_label||'Go →';
-        btn.onclick=()=>eval(d.btn_action||'');
+        // After taking the action, refresh the card so resolved states disappear
+        btn.onclick=()=>{eval(d.btn_action||'');setTimeout(loadNextAction,2500);};
       }
     }catch(e){}
   }
