@@ -63,7 +63,7 @@ if "%CHROME_OK%"=="0" (
 )
 
 REM ── Create virtual environment ──────────────────────────────────────────────
-echo  [3/4] Setting up Python environment...
+echo  [3/5] Setting up Python environment...
 if not exist "%PROJECT%\.venv" (
     echo  Creating virtual environment (.venv)...
     "%PY%" -m venv "%PROJECT%\.venv"
@@ -87,7 +87,7 @@ echo  Installing Playwright browser...
 echo  Done.
 
 REM ── Run interactive wizard ──────────────────────────────────────────────────
-echo  [4/4] Running setup wizard...
+echo  [4/5] Running setup wizard...
 echo.
 cd /d "%PROJECT%"
 "%PY%" setup_wizard.py
@@ -98,10 +98,25 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM ── Chrome Extension instructions ─────────────────────────────────────────
+echo  [5/5] Chrome Extension setup...
+echo.
+echo  To install the Chrome extension:
+echo    1. Open Chrome and go to: chrome://extensions
+echo    2. Enable "Developer mode" (toggle in the top-right)
+echo    3. Click "Load unpacked"
+echo    4. Select this folder: %PROJECT%\web\extension
+echo.
+echo  The extension adds Fit Radar score badges to job listing pages
+echo  and Smart Fill on application forms.
+echo.
+pause
+
 echo.
 echo  ╔═══════════════════════════════════════════════════╗
 echo  ║   SETUP COMPLETE                                  ║
 echo  ║   Double-click start_job_agent.bat to launch.     ║
+echo  ║   Then load the Chrome extension (see above).     ║
 echo  ╚═══════════════════════════════════════════════════╝
 echo.
 pause

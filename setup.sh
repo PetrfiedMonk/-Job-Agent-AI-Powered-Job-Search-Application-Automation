@@ -11,7 +11,7 @@ echo ""
 PROJECT="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Check Python ──────────────────────────────────────────────────────────────
-echo " [1/4] Checking Python..."
+echo " [1/5] Checking Python..."
 if ! command -v python3 &>/dev/null; then
     echo ""
     echo " ERROR: Python 3 not found."
@@ -27,7 +27,7 @@ fi
 echo " Found: $(python3 --version)"
 
 # ── Check Chrome ──────────────────────────────────────────────────────────────
-echo " [2/4] Checking for Google Chrome..."
+echo " [2/5] Checking for Google Chrome..."
 CHROME_FOUND=0
 if [ -f "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then CHROME_FOUND=1; fi
 if command -v google-chrome &>/dev/null; then CHROME_FOUND=1; fi
@@ -45,7 +45,7 @@ else
 fi
 
 # ── Create virtual environment ────────────────────────────────────────────────
-echo " [3/4] Setting up Python environment..."
+echo " [3/5] Setting up Python environment..."
 if [ ! -d "$PROJECT/.venv" ]; then
     echo " Creating virtual environment..."
     python3 -m venv "$PROJECT/.venv"
@@ -61,14 +61,29 @@ echo " Installing Playwright browser..."
 "$PY" -m playwright install chromium
 
 # ── Run wizard ────────────────────────────────────────────────────────────────
-echo " [4/4] Running setup wizard..."
+echo " [4/5] Running setup wizard..."
 echo ""
 cd "$PROJECT"
 "$PY" setup_wizard.py
+
+# ── Chrome Extension ──────────────────────────────────────────────────────────
+echo " [5/5] Chrome Extension setup..."
+echo ""
+echo " To install the Chrome extension:"
+echo "   1. Open Chrome → chrome://extensions"
+echo "   2. Enable Developer mode (top-right toggle)"
+echo "   3. Click 'Load unpacked'"
+echo "   4. Select this folder: $PROJECT/web/extension"
+echo ""
+echo " The extension adds Fit Radar score badges on job listing pages"
+echo " and Smart Fill on application forms."
+echo ""
+read -rp " Press Enter to finish..."
 
 echo ""
 echo " ╔═══════════════════════════════════════════════════╗"
 echo " ║   SETUP COMPLETE                                  ║"
 echo " ║   Run: ./start_job_agent.sh to launch.            ║"
+echo " ║   Then load the Chrome extension (see above).     ║"
 echo " ╚═══════════════════════════════════════════════════╝"
 echo ""
