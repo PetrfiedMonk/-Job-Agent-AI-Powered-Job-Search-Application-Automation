@@ -1279,6 +1279,63 @@ async def apply_one_job(job_id: str):
         current_step = None
 
 
+@app.post("/api/jobs/{job_id}/queue")
+async def queue_job(job_id: str):
+    """Add a job to the attack queue. Idempotent."""
+    if not tracker:
+        raise HTTPException(status_code=503, detail="Tracker not ready")
+    rows = tracker.get_jobs(min_score=0, limit=500)
+    row = next((r for r in rows if str(r["id"]) == str(job_id)), None)
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    tracker.set_queued(job_id, True)
+    return {"ok": True, "job_id": job_id, "queued": True}
+
+
+@app.delete("/api/jobs/{job_id}/queue")
+async def unqueue_job(job_id: str):
+    """Remove a job from the attack queue."""
+    if not tracker:
+        raise HTTPException(status_code=503, detail="Tracker not ready")
+    tracker.set_queued(job_id, False)
+    return {"ok": True, "job_id": job_id, "queued": False}
+
+
+@app.get("/api/queue")
+async def get_queue():
+    """Return all jobs currently in the attack queue."""
+    if not tracker:
+        return []
+    return tracker.get_queued_jobs()
+
+
+@app.delete("/api/queue")
+async def clear_queue_endpoint():
+    """Clear the entire attack queue."""
+    if not tracker:
+        raise HTTPException(status_code=503, detail="Tracker not ready")
+    cleared = tracker.clear_queue()
+    return {"ok": True, "cleared": cleared}
+
+
+@app.post("/api/queue/launch")
+async def launch_queue_attack():
+    """Start auto-applying to all jobs in the queue. Streams progress via WebSocket."""
+    global pipeline_running
+    if pipeline_running:
+        raise HTTPException(status_code=409, detail="Pipeline already running")
+    if not agent:
+        raise HTTPException(status_code=503, detail="Agent not initialized")
+    if not tracker:
+        raise HTTPException(status_code=503, detail="Tracker not ready")
+    queued = tracker.get_queued_jobs()
+    if not queued:
+        raise HTTPException(status_code=400, detail="Queue is empty — add jobs first")
+    pipeline_running = True
+    asyncio.create_task(run_queue_attack([str(r["id"]) for r in queued]))
+    return {"ok": True, "queued": len(queued)}
+
+
 @app.get("/api/needs-manual")
 async def get_needs_manual():
     """Return all jobs that failed automation and need a manual application."""
@@ -2691,6 +2748,167 @@ async def run_search_background(settings: Optional[SearchSettings]):
     finally:
         pipeline_running = False
         current_step = None
+
+
+async def run_queue_attack(job_ids: list):
+    """Process the user-curated attack queue. Streams per-job progress via WebSocket."""
+    global pipeline_running, current_step, _run_log
+    import uuid as _uuid
+    from job_agent.models import Application, ApplicationStatus, JobPosting, JobPlatform
+    from job_agent.automation.ats_handlers import detect_ats as _detect_ats
+
+    cfg = load_config()
+    if _run_log is None:
+        _run_log = RunLog(str(Path(cfg.output.output_dir) / "run_log.md"))
+
+    async def broadcast(payload: dict):
+        await manager.broadcast(json.dumps({**payload, "timestamp": datetime.now().isoformat()}))
+
+    total = len(job_ids)
+    applied_count = 0
+    manual_count = 0
+    failed_count = 0
+    xp_total = 0
+
+    try:
+        current_step = "Queue Attack: Loading profile..."
+        await broadcast({"type": "queue_progress", "current": 0, "total": total,
+                         "phase": "init", "title": "Loading profile..."})
+
+        profile = agent._load_profile_cache() if not agent.profile else agent.profile
+        if not profile:
+            await broadcast({"type": "queue_complete", "error": "No profile — run Deep Rescan first",
+                              "applied": 0, "manual": 0, "failed": 0, "xp": 0})
+            return
+
+        all_rows = tracker.get_jobs(min_score=0, limit=500)
+        row_map = {str(r["id"]): r for r in all_rows}
+        _stop_event.clear()
+
+        for i, job_id in enumerate(job_ids):
+            if _stop_event.is_set():
+                break
+
+            row = row_map.get(str(job_id))
+            if not row:
+                continue
+
+            title = row.get("title", "")
+            company = row.get("company", "")
+            current_step = f"Queue [{i+1}/{total}]: {company}"
+
+            await broadcast({"type": "queue_progress", "current": i + 1, "total": total,
+                             "job_id": job_id, "title": title, "company": company, "phase": "applying"})
+
+            # Check if already applied
+            if tracker.already_applied(job_id):
+                tracker.set_queued(job_id, False)
+                await broadcast({"type": "queue_job_done", "job_id": job_id,
+                                  "title": title, "company": company, "status": "skipped",
+                                  "note": "Already applied"})
+                continue
+
+            # Manual-only platforms
+            job_platform = str(row.get("platform", "")).lower()
+            manual_only_set = set(x.lower() for x in (cfg.automation.manual_only_platforms or []))
+            manual_only_set.update({"indeed", "linkedin"})
+            if job_platform in manual_only_set:
+                from job_agent.models import Application as _App, ApplicationStatus as _AS, JobPosting as _JP2, JobPlatform as _JPF2
+                _job_tmp = _JP2(id=job_id, title=title, company=company,
+                                location=row.get("location",""), description="",
+                                url=row.get("url",""),
+                                platform=_JPF2(row["platform"]) if row.get("platform") else _JPF2.INDEED)
+                _app_tmp = _App(id=str(_uuid.uuid4()), job=_job_tmp, resume=None,
+                                status=_AS.NEEDS_MANUAL,
+                                error=f"{job_platform.title()} blocks automation — use Apply Kit.")
+                tracker.create_application(_app_tmp)
+                tracker.set_queued(job_id, False)
+                manual_count += 1
+                xp_total += 20
+                await broadcast({"type": "queue_job_done", "job_id": job_id,
+                                  "title": title, "company": company, "status": "needs_manual",
+                                  "xp": 20})
+                continue
+
+            # Build and run apply
+            try:
+                from job_agent.models import LazyResume
+                job = JobPosting(
+                    id=job_id, title=title, company=company,
+                    location=row.get("location") or "",
+                    description=row.get("description") or "",
+                    url=row.get("url") or "",
+                    platform=JobPlatform(row["platform"]) if row.get("platform") else JobPlatform.INDEED,
+                    fit_score=row.get("fit_score") or 0,
+                    combined_score=row.get("combined_score") or 0,
+                )
+                lazy = LazyResume(
+                    job=job, profile=profile, tailor=agent.tailor,
+                    resumes_dir=config.output.resumes_dir,
+                    auto_cover_letter=config.automation.auto_cover_letter,
+                    vault_index=agent.vault_index,
+                )
+                app_obj = Application(
+                    id=str(_uuid.uuid4()), job=job, resume=lazy,
+                    status=ApplicationStatus.QUEUED,
+                )
+                tracker.create_application(app_obj)
+                result = await asyncio.to_thread(agent.agent.apply_one, app_obj)
+                tracker.sync_application(result)
+
+                if config.profile.obsidian_vault_path and lazy.tailored_summary:
+                    try:
+                        await asyncio.to_thread(_write_resume_to_vault, lazy, config.profile.obsidian_vault_path)
+                    except Exception:
+                        pass
+
+                _run_log.log_result(
+                    title=title, company=company, url=row.get("url", ""),
+                    status=result.status.value, ats=_detect_ats(row.get("url", "")),
+                    error=result.error, notes=result.notes,
+                    fields_filled=len(result.form_data) if result.form_data else 0,
+                )
+
+                tracker.set_queued(job_id, False)
+                status = result.status.value
+                xp = 150 if status == "applied" else 20 if status == "needs_manual" else 0
+                xp_total += xp
+                if status == "applied":
+                    applied_count += 1
+                elif status == "needs_manual":
+                    manual_count += 1
+                else:
+                    failed_count += 1
+
+                await broadcast({"type": "queue_job_done", "job_id": job_id,
+                                  "title": title, "company": company,
+                                  "status": status, "xp": xp, "error": result.error or ""})
+                # also send apply_update so job cards refresh
+                await broadcast({"type": "apply_update", "job_id": job_id,
+                                  "status": status, "company": company, "title": title,
+                                  "error": result.error or "", "notes": result.notes or ""})
+
+            except Exception as e:
+                logger.error(f"[queue] {job_id}: {e}")
+                tracker.set_queued(job_id, False)
+                failed_count += 1
+                await broadcast({"type": "queue_job_done", "job_id": job_id,
+                                  "title": title, "company": company,
+                                  "status": "failed", "xp": 0, "error": str(e)})
+
+    except Exception as e:
+        logger.error(f"[queue-attack] fatal: {e}")
+    finally:
+        pipeline_running = False
+        current_step = None
+        await broadcast({
+            "type": "queue_complete",
+            "total": total,
+            "applied": applied_count,
+            "manual": manual_count,
+            "failed": failed_count,
+            "xp": xp_total,
+        })
 
 
 async def run_auto_apply_background(min_score: float, max_apply: int):

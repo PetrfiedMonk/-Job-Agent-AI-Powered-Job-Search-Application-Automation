@@ -151,6 +151,7 @@ class Tracker:
                 ("content_hash",        "TEXT"),
                 ("posted_date",         "TEXT"),
                 ("description_summary", "TEXT"),
+                ("queued",              "INTEGER DEFAULT 0"),
             ]:
                 try:
                     conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {typedef}")
@@ -612,6 +613,35 @@ class Tracker:
                        VALUES (?, ?, 'dismissed', ?, ?)""",
                     (str(uuid.uuid4()), job_id, now, now),
                 )
+
+    # ── Queue Attack ──────────────────────────────────────────────────────────
+
+    def set_queued(self, job_id: str, queued: bool) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET queued=? WHERE id=?",
+                (1 if queued else 0, job_id)
+            )
+
+    def get_queued_jobs(self) -> List[Dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT j.*, a.status as app_status
+                   FROM jobs j
+                   LEFT JOIN (
+                       SELECT job_id, status FROM applications
+                       WHERE created_at = (SELECT MAX(a2.created_at) FROM applications a2 WHERE a2.job_id = applications.job_id)
+                       GROUP BY job_id
+                   ) a ON j.id = a.job_id
+                   WHERE j.queued = 1
+                   ORDER BY j.combined_score DESC"""
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def clear_queue(self) -> int:
+        with self._connect() as conn:
+            cur = conn.execute("UPDATE jobs SET queued=0 WHERE queued=1")
+            return cur.rowcount
 
     # ── Applications ──────────────────────────────────────────────────────────
 

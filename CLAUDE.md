@@ -86,7 +86,12 @@ All routes are under `/api/` prefix. Line numbers are approximate — grep `@app
 | 849 | POST | `/api/jobs/{id}/generate-resume` | Trigger Claude resume tailoring |
 | 1111 | POST | `/api/auto-apply` | Start batch auto-apply |
 | 1125 | POST | `/api/jobs/{id}/apply` | Auto-apply single job |
-| 1282 | GET | `/api/needs-manual` | Jobs needing manual apply |
+| 1282 | POST | `/api/jobs/{id}/queue` | Add job to attack queue |
+| ~1295 | DELETE | `/api/jobs/{id}/queue` | Remove from queue |
+| ~1305 | GET | `/api/queue` | List all queued jobs |
+| ~1315 | DELETE | `/api/queue` | Clear entire queue |
+| ~1325 | POST | `/api/queue/launch` | Launch queue attack (background) |
+| ~1342 | GET | `/api/needs-manual` | Jobs needing manual apply |
 | 1294 | POST | `/api/jobs/{id}/mark-applied-manually` | Mark as manually applied |
 | 1312 | POST | `/api/jobs/{id}/dismiss` | Dismiss a job |
 | 2258 | POST | `/api/track-job` | Add job to tracker |
@@ -400,6 +405,8 @@ When reading answers, `get_cached_answer()` always orders `source='user'` first.
 | Change answer playbook logic | `job_agent/db/field_semantics.py` → `save_to_playbook()`, `list_playbook()`, `get_cached_answer()` |
 | Change Next Action card logic | `web/backend/main.py` ~line 3373 `get_next_action()` + `web/frontend/index.html` line 4334 `loadNextAction()` |
 | Change auto-submission logging | `web/extension/content.js` → `logApplication()`, `setupSubmitWatcher()` + `web/backend/main.py` line 2276 |
+| Change queue attack logic | `web/backend/main.py` → `run_queue_attack()` + `job_agent/db/tracker.py` → `set_queued/get_queued_jobs/clear_queue` |
+| Change queue dock / overlay UI | `web/frontend/index.html` → CSS classes `qdock-*` / `qov-*`, HTML `#queue-dock` / `#queue-overlay`, JS `toggleQueue/launchQueueAttack/handleQueueComplete` |
 | Change pipeline flow | `job_agent/orchestrator.py` |
 | Change platform scraping | `job_agent/search/job_searcher.py` |
 | Change DOCX resume output | `job_agent/builders/resume_builder.py` |

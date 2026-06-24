@@ -773,6 +773,52 @@
     .btn-assist-submit:hover{transform:translateY(-2px);box-shadow:0 0 40px rgba(245,158,11,.5);}
     .btn-assist-skip{background:transparent;color:var(--text-3);border:1px solid var(--border);border-radius:10px;padding:.85rem 1.2rem;font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;}
     .btn-assist-skip:hover{border-color:rgba(255,255,255,.12);color:var(--text-2);}
+
+  /* ── Queue Attack ──────────────────────────────────────────────────────── */
+  .queue-btn{background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.22);color:#a5b4fc;border-radius:7px;padding:.28rem .65rem;font-size:.74rem;cursor:pointer;font-family:inherit;transition:all .2s;white-space:nowrap;line-height:1.4;}
+  .queue-btn:hover{background:rgba(99,102,241,.18);border-color:rgba(99,102,241,.45);}
+  .queue-btn.queued{background:rgba(99,102,241,.22);border-color:rgba(99,102,241,.55);color:#c4b5fd;font-weight:600;}
+  #queue-dock{position:fixed;bottom:0;left:0;right:0;z-index:1100;background:linear-gradient(to top,rgba(8,8,18,.98),rgba(12,12,26,.95));border-top:1px solid rgba(99,102,241,.3);padding:.6rem 1.25rem;display:flex;align-items:center;gap:.7rem;transform:translateY(100%);transition:transform .38s cubic-bezier(.34,1.56,.64,1);backdrop-filter:blur(14px);}
+  #queue-dock.visible{transform:translateY(0);}
+  .qdock-badge{background:rgba(99,102,241,.25);border:1.5px solid rgba(99,102,241,.55);border-radius:50%;width:2rem;height:2rem;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:800;color:#a5b4fc;flex-shrink:0;animation:qdock-pulse 2.2s ease-in-out infinite;}
+  @keyframes qdock-pulse{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,.35);}60%{box-shadow:0 0 0 7px rgba(99,102,241,0);}}
+  .qdock-chips{display:flex;gap:.3rem;flex:1;overflow:hidden;max-width:340px;}
+  .qdock-chip{font-size:.63rem;padding:.1rem .38rem;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:4px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px;}
+  .qdock-label{color:var(--text-3);font-size:.76rem;white-space:nowrap;}
+  .qdock-launch{background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff;border-radius:8px;padding:.5rem 1.1rem;font-size:.8rem;font-weight:700;cursor:pointer;box-shadow:0 0 18px rgba(99,102,241,.45);transition:all .2s;font-family:inherit;letter-spacing:.04em;white-space:nowrap;}
+  .qdock-launch:hover{box-shadow:0 0 30px rgba(99,102,241,.75);transform:scale(1.05);}
+  .qdock-launch:disabled{opacity:.5;transform:none;cursor:default;}
+  .qdock-clear{background:transparent;border:1px solid rgba(239,68,68,.2);border-radius:6px;color:rgba(239,68,68,.45);cursor:pointer;font-size:.7rem;padding:.3rem .5rem;font-family:inherit;transition:all .15s;flex-shrink:0;}
+  .qdock-clear:hover{color:#f87171;border-color:rgba(239,68,68,.5);}
+
+  /* ── Queue Attack Overlay ─────────────────────────────────────────────── */
+  #queue-overlay{position:fixed;inset:0;z-index:1200;background:rgba(4,4,14,.92);backdrop-filter:blur(18px);display:none;flex-direction:column;align-items:center;justify-content:center;padding:2rem;}
+  #queue-overlay.active{display:flex;}
+  .qov-header{font-size:1.55rem;font-weight:800;color:#fff;margin-bottom:.2rem;letter-spacing:-.025em;}
+  .qov-sub{font-size:.8rem;color:var(--text-3);margin-bottom:1.8rem;}
+  .qov-track{width:100%;max-width:500px;height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;margin-bottom:.45rem;}
+  .qov-fill{height:100%;background:linear-gradient(90deg,#6366f1,#8b5cf6,#a78bfa);border-radius:3px;transition:width .55s ease;}
+  .qov-step{font-size:.7rem;color:var(--text-3);max-width:500px;width:100%;text-align:right;margin-bottom:1.8rem;}
+  .qov-results{width:100%;max-width:500px;display:flex;flex-direction:column;gap:.38rem;max-height:260px;overflow-y:auto;margin-bottom:1.4rem;}
+  .qov-row{display:flex;align-items:center;gap:.65rem;padding:.5rem .8rem;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);font-size:.77rem;animation:qov-in .3s ease;}
+  @keyframes qov-in{from{opacity:0;transform:translateY(5px);}to{opacity:1;transform:none;}}
+  .qov-row.applied{border-color:rgba(52,211,153,.22);background:rgba(52,211,153,.05);}
+  .qov-row.manual{border-color:rgba(251,191,36,.22);background:rgba(251,191,36,.04);}
+  .qov-row.failed{border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.04);}
+  .qov-row.skipped{opacity:.45;}
+  .qov-ico{font-size:1rem;flex-shrink:0;}
+  .qov-info{flex:1;min-width:0;}
+  .qov-co{font-weight:600;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .qov-role{font-size:.67rem;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .qov-xp{font-size:.68rem;color:#a5b4fc;font-weight:700;flex-shrink:0;}
+  .qov-spinner{width:32px;height:32px;border:3px solid rgba(99,102,241,.18);border-top-color:#6366f1;border-radius:50%;animation:spin .75s linear infinite;margin-bottom:1rem;}
+  .qov-done-grid{display:flex;gap:2rem;margin-bottom:1.6rem;}
+  .qov-done-num{text-align:center;}
+  .qov-done-num b{display:block;font-size:1.8rem;font-weight:800;line-height:1;}
+  .qov-done-num span{font-size:.63rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.07em;}
+  .qov-done-num.g b{color:#34d399;}.qov-done-num.y b{color:#fbbf24;}.qov-done-num.r b{color:#f87171;}
+  .qov-xp-big{font-size:2.2rem;font-weight:900;color:#a5b4fc;letter-spacing:-.03em;margin-bottom:.15rem;}
+  .qov-xp-lbl{font-size:.7rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:1.6rem;}
   </style>
 </head>
 <body>
@@ -1737,6 +1783,39 @@
   </div>
 </div>
 
+<!-- ── Queue Dock ──────────────────────────────────────────────────────────── -->
+<div id="queue-dock">
+  <div class="qdock-badge" id="qdock-count">0</div>
+  <div class="qdock-chips" id="qdock-chips"></div>
+  <div class="qdock-label">queued for attack</div>
+  <button class="qdock-launch" onclick="launchQueueAttack()" id="qdock-launch-btn">🚀 Launch Attack</button>
+  <button class="qdock-clear" onclick="clearQueue()" title="Clear queue">✕</button>
+</div>
+
+<!-- ── Queue Attack Overlay ───────────────────────────────────────────────── -->
+<div id="queue-overlay">
+  <div id="qov-running">
+    <div class="qov-spinner"></div>
+    <div class="qov-header">⚡ Attack in Progress</div>
+    <div class="qov-sub" id="qov-sub-text">Preparing your salvo…</div>
+    <div class="qov-track"><div class="qov-fill" id="qov-fill" style="width:0%"></div></div>
+    <div class="qov-step" id="qov-step">0 / 0</div>
+    <div class="qov-results" id="qov-results"></div>
+  </div>
+  <div id="qov-done" style="display:none;flex-direction:column;align-items:center;text-align:center;">
+    <div style="font-size:3rem;margin-bottom:.5rem">🎯</div>
+    <div class="qov-header">Mission Complete</div>
+    <div class="qov-sub" id="qov-done-sub">Your attack wave has landed.</div>
+    <div class="qov-done-grid" id="qov-done-grid"></div>
+    <div class="qov-xp-big" id="qov-done-xp">+0</div>
+    <div class="qov-xp-lbl">XP EARNED THIS WAVE</div>
+    <div style="display:flex;gap:.75rem">
+      <button class="btn btn-ghost" onclick="closeQueueOverlay()">✕ Close</button>
+      <button class="btn btn-primary" onclick="closeQueueOverlay();showTab('jobs')">View Results</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
 <script>
@@ -1744,6 +1823,7 @@
   let isRunning=false,logLines=[],allJobs=[],newCardIds=new Set();
   let activeFilter='all',activeSort='score_desc',activeDateRange='all',ws=null,wsHeartbeat=null;
   let intelJob=null,outreachCache={};
+  let queuedIds=new Set();
 
   // ── Profile cache — populated on page load, used for personalised messages ──
   let _profile = null;
@@ -2269,7 +2349,8 @@
                ${job.status==='needs_manual'||isManualPlatform
                  ? `${!isManualPlatform?`<button class="btn apply-one-btn" id="apply-btn-${sid}" style="background:rgba(251,191,36,.14);color:#fbbf24;border:1px solid rgba(251,191,36,.3);" onclick="openMatchBrief('${sid}',this)">⚠ Retry Auto</button>`:''}
                     <button class="btn" style="background:rgba(99,102,241,.12);color:#a5b4fc;border:1px solid rgba(99,102,241,.3);" onclick="openManualKit('${sid}')">📋 Apply Kit</button>`
-                 : `<button class="btn btn-primary apply-one-btn" id="apply-btn-${sid}" onclick="openMatchBrief('${sid}',this)">⚡ Auto Apply</button>`
+                 : `<button class="btn btn-primary apply-one-btn" id="apply-btn-${sid}" onclick="openMatchBrief('${sid}',this)">⚡ Auto Apply</button>
+                    <button class="queue-btn${queuedIds.has(sid)?' queued':''}" id="qbtn-${sid}" onclick="toggleQueue('${sid}',this)">${queuedIds.has(sid)?'✓ Queued':'⊕ Queue'}</button>`
                }`
           }
         </div>
@@ -3239,6 +3320,9 @@
           loadRunLog();
         }
         if(d.type==='apply_update'){handleApplyUpdate(d);}
+        if(d.type==='queue_progress'){handleQueueProgress(d);}
+        if(d.type==='queue_job_done'){handleQueueJobDone(d);}
+        if(d.type==='queue_complete'){handleQueueComplete(d);}
         if(d.type==='captcha_detected'){showCaptchaAlert(d);}
         if(d.type==='captcha_resolved'){hideCaptchaAlert();}
         if(d.type==='assist_needed'){showAssistModal(d);}
@@ -4518,9 +4602,146 @@
     }catch(e){}
   }
 
+  // ── Queue Attack ────────────────────────────────────────────────────────────
+  async function loadQueue(){
+    try{
+      const rows=await fetch(`${API}/queue`).then(r=>r.json());
+      queuedIds=new Set(rows.map(r=>String(r.id)));
+      updateQueueDock(rows);
+    }catch{}
+  }
+
+  async function toggleQueue(jobId, btn){
+    const isQ=queuedIds.has(String(jobId));
+    try{
+      if(isQ){
+        await fetch(`${API}/jobs/${jobId}/queue`,{method:'DELETE'});
+        queuedIds.delete(String(jobId));
+      } else {
+        await fetch(`${API}/jobs/${jobId}/queue`,{method:'POST'});
+        queuedIds.add(String(jobId));
+        // mini burst on queue
+        const rect=btn.getBoundingClientRect();
+        burst(rect.left+rect.width/2,rect.top,'#a5b4fc',8);
+      }
+      if(btn){btn.className='queue-btn'+(queuedIds.has(String(jobId))?' queued':'');btn.textContent=queuedIds.has(String(jobId))?'✓ Queued':'⊕ Queue';}
+      // Refresh dock
+      const rows=await fetch(`${API}/queue`).then(r=>r.json());
+      updateQueueDock(rows);
+    }catch(e){toast('Queue error: '+e.message,'err');}
+  }
+
+  function updateQueueDock(rows){
+    const dock=document.getElementById('queue-dock');
+    const count=document.getElementById('qdock-count');
+    const chips=document.getElementById('qdock-chips');
+    if(!dock||!count||!chips)return;
+    const n=rows?rows.length:queuedIds.size;
+    count.textContent=n;
+    if(n>0){dock.classList.add('visible');}else{dock.classList.remove('visible');}
+    if(rows){
+      chips.innerHTML=rows.slice(0,5).map(r=>`<span class="qdock-chip">${esc(r.company||r.title||'Job')}</span>`).join('');
+    }
+  }
+
+  async function clearQueue(){
+    try{
+      await fetch(`${API}/queue`,{method:'DELETE'});
+      queuedIds.clear();
+      updateQueueDock([]);
+      renderJobs();
+      toast('Queue cleared','info');
+    }catch(e){toast('Could not clear queue: '+e.message,'err');}
+  }
+
+  async function launchQueueAttack(){
+    if(queuedIds.size===0){toast('Nothing queued — add jobs with ⊕ Queue','warn');return;}
+    const btn=document.getElementById('qdock-launch-btn');
+    if(btn){btn.disabled=true;btn.textContent='⏳ Launching…';}
+    try{
+      const res=await fetch(`${API}/queue/launch`,{method:'POST'});
+      if(!res.ok){const d=await res.json();throw new Error(d.detail||'Launch failed');}
+      // Show overlay
+      const ov=document.getElementById('queue-overlay');
+      const running=document.getElementById('qov-running');
+      const done=document.getElementById('qov-done');
+      if(ov){ov.classList.add('active');}
+      if(running)running.style.display='flex';running.style.flexDirection='column';running.style.alignItems='center';running.style.textAlign='center';
+      if(done)done.style.display='none';
+      document.getElementById('qov-results').innerHTML='';
+      document.getElementById('qov-fill').style.width='0%';
+      document.getElementById('qov-step').textContent='0 / '+queuedIds.size;
+    }catch(e){
+      if(btn){btn.disabled=false;btn.textContent='🚀 Launch Attack';}
+      toast('Launch failed: '+e.message,'err');
+    }
+  }
+
+  function handleQueueProgress(d){
+    const fill=document.getElementById('qov-fill');
+    const step=document.getElementById('qov-step');
+    const sub=document.getElementById('qov-sub-text');
+    const pct=d.total>0?Math.round((d.current/d.total)*100):0;
+    if(fill)fill.style.width=pct+'%';
+    if(step)step.textContent=`${d.current} / ${d.total}`;
+    if(sub&&d.company)sub.textContent=`Applying to ${d.company}…`;
+  }
+
+  function handleQueueJobDone(d){
+    const list=document.getElementById('qov-results');
+    if(!list)return;
+    const ico={applied:'✓',needs_manual:'⚠',failed:'✗',skipped:'—'}[d.status]||'·';
+    const xpStr=d.xp>0?`+${d.xp} XP`:'';
+    const row=document.createElement('div');
+    row.className=`qov-row ${d.status||''}`;
+    row.innerHTML=`<span class="qov-ico">${ico}</span><div class="qov-info"><div class="qov-co">${esc(d.company||'')}</div><div class="qov-role">${esc(d.title||'')}</div></div><span class="qov-xp">${xpStr}</span>`;
+    list.appendChild(row);
+    list.scrollTop=list.scrollHeight;
+    // Remove from queued set
+    queuedIds.delete(String(d.job_id));
+  }
+
+  function handleQueueComplete(d){
+    const running=document.getElementById('qov-running');
+    const done=document.getElementById('qov-done');
+    if(running)running.style.display='none';
+    if(done){
+      done.style.display='flex';
+      const sub=document.getElementById('qov-done-sub');
+      if(sub)sub.textContent=`${d.total} job${d.total!==1?'s':''} attacked. Wave complete.`;
+      const grid=document.getElementById('qov-done-grid');
+      if(grid)grid.innerHTML=`
+        <div class="qov-done-num g"><b>${d.applied||0}</b><span>Applied</span></div>
+        <div class="qov-done-num y"><b>${d.manual||0}</b><span>Manual</span></div>
+        <div class="qov-done-num r"><b>${d.failed||0}</b><span>Failed</span></div>`;
+      const xp=document.getElementById('qov-done-xp');
+      if(xp)xp.textContent=`+${d.xp||0}`;
+    }
+    // XP award
+    if(d.xp)addXP(d.xp,'Queue attack complete');
+    // Celebration burst
+    if((d.applied||0)>0){
+      burst(window.innerWidth/2,window.innerHeight/3,'#6366f1',30);
+      setTimeout(()=>burst(window.innerWidth*.35,window.innerHeight*.4,'#a78bfa',20),200);
+    }
+    // Reset dock
+    queuedIds.clear();
+    updateQueueDock([]);
+    const btn=document.getElementById('qdock-launch-btn');
+    if(btn){btn.disabled=false;btn.textContent='🚀 Launch Attack';}
+    // Refresh jobs
+    loadJobs();loadNextAction();
+    toast(`Wave complete — ${d.applied||0} applied, +${d.xp||0} XP 🎯`,'ok',5000);
+  }
+
+  function closeQueueOverlay(){
+    const ov=document.getElementById('queue-overlay');
+    if(ov)ov.classList.remove('active');
+  }
+
   document.addEventListener('DOMContentLoaded',()=>{
     loadProfile();loadStatus();loadJobs();connectWS();loadScore();loadSystemIntel();loadNeedsManual();restoreVaultRecs();
-    loadAutopilot();loadMomentum();loadNextAction();
+    loadAutopilot();loadMomentum();loadNextAction();loadQueue();
     updateXPBar();
     fetch(`${API}/config`).then(r=>r.json()).then(d=>checkProfileSetup(d.profile||{})).catch(()=>{});
     setInterval(loadStatus,2000);setInterval(loadJobs,5000);setInterval(loadScore,30000);
