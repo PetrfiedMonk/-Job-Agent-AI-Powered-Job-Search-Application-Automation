@@ -82,56 +82,90 @@ class JobSearcher:
         """Use the jobspy library for robust multi-platform search."""
         from jobspy import scrape_jobs
         import pandas as pd
+        import math
 
         site_map = {
-            "indeed": "indeed",
-            "linkedin": "linkedin",
+            "indeed":       "indeed",
+            "linkedin":     "linkedin",
             "ziprecruiter": "zip_recruiter",
-            "glassdoor": "glassdoor",
+            "glassdoor":    "glassdoor",
         }
         sites = [site_map[p] for p in platforms if p in site_map]
 
-        try:
-            df = scrape_jobs(
-                site_name=sites,
+        def _s(val, default="") -> str:
+            if val is None:
+                return default
+            try:
+                if isinstance(val, float) and math.isnan(val):
+                    return default
+            except Exception:
+                pass
+            s = str(val).strip()
+            return default if s.lower() in ("nan", "none", "") else s
+
+        def _scrape(site_names: list):
+            return scrape_jobs(
+                site_name=site_names,
                 search_term=keyword,
                 location=location,
                 results_wanted=self.config.max_results_per_search,
-                hours_old=72,           # Jobs posted in last 3 days
+                hours_old=168,          # 7-day window — more inventory from all platforms
                 country_indeed="USA",
                 linkedin_fetch_description=True,
             )
+
+        # Try all platforms together; if that fails, retry each one individually
+        # so a broken Glassdoor/ZipRecruiter response doesn't kill LinkedIn/Indeed
+        df = None
+        try:
+            df = _scrape(sites)
         except Exception as e:
-            print(f"[search] jobspy error for '{keyword}' in '{location}': {e}")
+            print(f"[search] Multi-platform scrape failed ({e}), retrying per-platform…")
+            frames = []
+            for site in sites:
+                try:
+                    frames.append(_scrape([site]))
+                    print(f"[search]   {site}: ok")
+                except Exception as site_err:
+                    print(f"[search]   {site}: failed — {site_err}")
+            if frames:
+                df = pd.concat(frames, ignore_index=True)
+
+        if df is None or df.empty:
+            print(f"[search] '{keyword}' in '{location}': 0 jobs (all platforms failed)")
             return []
 
         jobs = []
+        platform_counts: dict = {}
         for _, row in df.iterrows():
             try:
-                platform = self._map_platform(str(row.get("site", "indeed")))
+                site_name = _s(row.get("site"), "indeed")
+                platform = self._map_platform(site_name)
                 job = JobPosting(
-                    id=str(row.get("id", uuid.uuid4())),
-                    title=str(row.get("title", "")),
-                    company=str(row.get("company", "")),
-                    location=str(row.get("location", location)),
-                    description=str(row.get("description", "")),
-                    url=str(row.get("job_url", "")),
+                    id=_s(row.get("id")) or str(uuid.uuid4()),
+                    title=_s(row.get("title")),
+                    company=_s(row.get("company")),
+                    location=_s(row.get("location"), location),
+                    description=_s(row.get("description")),
+                    url=_s(row.get("job_url")),
                     platform=platform,
                     salary_min=self._safe_int(row.get("min_amount")),
                     salary_max=self._safe_int(row.get("max_amount")),
-                    salary_text=str(row.get("interval", "")) if row.get("min_amount") else None,
-                    job_type=str(row.get("job_type", "fulltime")),
-                    remote="remote" in str(row.get("location", "")).lower(),
+                    salary_text=_s(row.get("interval")) if row.get("min_amount") else None,
+                    job_type=_s(row.get("job_type"), "fulltime"),
+                    remote="remote" in _s(row.get("location"), "").lower(),
                     posted_date=self._parse_date(row.get("date_posted")),
-                    easy_apply=bool(row.get("is_remote", False)),
+                    easy_apply=bool(row.get("is_easy_apply", False)),
                 )
-                if job.title and job.company:  # Skip malformed entries
+                if job.title and job.company:
                     jobs.append(job)
+                    platform_counts[site_name] = platform_counts.get(site_name, 0) + 1
             except Exception as e:
                 print(f"[search] Warning: could not parse job row: {e}")
                 continue
 
-        print(f"[search] '{keyword}' in '{location}': {len(jobs)} jobs")
+        breakdown = "  ".join(f"{k}:{v}" for k, v in sorted(platform_counts.items()))
+        print(f"[search] '{keyword}' in '{location}': {len(jobs)} jobs  [{breakdown}]")
         return jobs
 
     def _search_indeed_basic(self, keyword: str, location: str) -> List[JobPosting]:

@@ -19,12 +19,15 @@ class SearchConfig:
         "Technical Product Manager", "IT Product Manager"
     ])
     locations: List[str] = field(default_factory=lambda: ["remote", "Toledo OH"])
-    platforms: List[str] = field(default_factory=lambda: ["indeed", "linkedin"])
+    platforms: List[str] = field(default_factory=lambda: ["indeed", "linkedin", "ziprecruiter", "glassdoor"])
     max_results_per_search: int = 25
     min_salary: int = 80000
     job_types: List[str] = field(default_factory=lambda: ["fulltime"])
     exclude_companies: List[str] = field(default_factory=list)
     exclude_keywords: List[str] = field(default_factory=lambda: ["senior director", "VP of", "C-level"])
+    # Country restriction — jobs whose location clearly matches a foreign country are dropped.
+    # Empty list = no restriction. Common values: ["United States", "Canada", "Remote"]
+    allowed_countries: List[str] = field(default_factory=lambda: ["United States", "Remote"])
 
 
 @dataclass
@@ -46,6 +49,10 @@ class AutomationConfig:
     pause_on_captcha: bool = True   # Stop and alert user when CAPTCHA detected
     auto_submit: bool = False       # Safety: set True to actually submit (default: review mode)
     screenshot_on_apply: bool = True
+    min_score_to_apply: int = 70    # Minimum combined score required to auto-apply
+    captcha_timeout_seconds: int = 300  # Seconds to wait for human CAPTCHA solve before giving up
+    auto_cover_letter: bool = False  # Generate and attach a tailored cover letter when the form has a cover letter field
+    manual_only_platforms: List[str] = field(default_factory=list)  # Platforms scanned but never auto-applied (e.g. ["indeed"])
 
 
 @dataclass
@@ -64,7 +71,14 @@ class ProfileConfig:
     name: str = ""
     email: str = ""
     phone: str = ""
-    location: str = ""
+    location: str = ""                 # "City, ST" display string
+    address_line1: str = ""
+    address_line2: str = ""
+    city: str = ""
+    state: str = ""
+    zip_code: str = ""
+    country: str = "United States"
+    work_authorization: str = "US Citizen"
     linkedin_url: str = ""
     github_url: str = ""
     website: str = ""
@@ -120,7 +134,7 @@ def save_example_config(path: str = "config.yaml"):
         "search": {
             "keywords": ["Product Manager", "Business Analyst", "Technical Product Manager"],
             "locations": ["remote", "Toledo OH"],
-            "platforms": ["indeed", "linkedin"],
+            "platforms": ["indeed", "linkedin", "ziprecruiter", "glassdoor"],
             "max_results_per_search": 25,
             "min_salary": 80000,
             "job_types": ["fulltime"],

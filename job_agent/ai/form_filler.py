@@ -40,7 +40,9 @@ _KEYWORD_RULES: List[Tuple[List[str], str]] = [
     (["state", "province", "region"], "personal.state"),
     (["zip", "postal", "postcode", "zip code", "postal code"], "personal.zip"),
     (["country", "nation", "country of residence"], "personal.country"),
-    (["address", "street address", "mailing address", "home address"], "personal.address"),
+    (["address line 1", "address1", "addr1", "street address", "mailing address",
+      "home address", "address line"], "personal.address"),
+    (["address line 2", "address2", "addr2", "apt", "suite", "unit"], "personal.address2"),
     # Social
     (["linkedin", "linkedin url", "linkedin profile", "linked in"], "social.linkedin"),
     (["github", "git hub", "github url", "github profile"], "social.github"),
@@ -325,6 +327,7 @@ class SmartFormFiller:
 Fields to classify:
 {json.dumps(simplified, indent=2)}"""
 
+        raw = ""
         try:
             resp = self.client.messages.create(
                 model=self.model,
@@ -345,7 +348,12 @@ Fields to classify:
                 for f in fields
             ]
         except Exception as e:
-            print(f"[form_filler] AI classify failed: {e}")
+            import warnings
+            warnings.warn(
+                f"[form_filler] AI classify failed ({type(e).__name__}: {e}). "
+                f"Raw response: {raw[:300]!r}",
+                stacklevel=2,
+            )
             return [{"canonical_type": "unknown", "confidence": 0, "source": "ai"} for _ in fields]
 
     # ── Phase 2: Question Answers ──────────────────────────────────────────────
@@ -393,6 +401,11 @@ Fields to classify:
         company   = (job_context or {}).get("company", "")
         job_title = (job_context or {}).get("title", "")
 
+        # Use tailored content if available — this is job-specific and produces better answers
+        tailored_summary = (job_context or {}).get("tailored_summary") or profile.summary or ""
+        highlighted_skills = (job_context or {}).get("highlighted_skills") or profile.skills or []
+        keywords_matched = (job_context or {}).get("keywords_matched") or []
+
         # Build rich profile context for the AI
         exp_summary = []
         for e in (profile.experience or [])[:4]:
@@ -408,10 +421,12 @@ Fields to classify:
                 for g in profile.vault_gems[:4]
             )
 
+        kw_line = f"\nKeywords matched for this role: {', '.join(keywords_matched[:10])}" if keywords_matched else ""
+
         profile_ctx = f"""Candidate: {profile.name}
 Current role: {profile.experience[0].title if profile.experience else 'N/A'} at {profile.experience[0].company if profile.experience else 'N/A'}
-Summary: {profile.summary}
-Top skills: {', '.join((profile.skills or [])[:12])}
+Summary (tailored for this specific role): {tailored_summary}
+Top skills for this role: {', '.join(highlighted_skills[:12])}{kw_line}
 Experience:
 {chr(10).join(exp_summary)}
 {gems}
@@ -537,8 +552,13 @@ Return only the JSON array."""
     def _profile_to_dict(self, profile: UserProfile, job_context: Optional[dict]) -> dict:
         first = profile.name.split()[0] if profile.name else ""
         last  = " ".join(profile.name.split()[1:]) if len((profile.name or "").split()) > 1 else ""
-        city  = profile.location.split(",")[0].strip() if "," in (profile.location or "") else profile.location
-        state = profile.location.split(",")[-1].strip() if "," in (profile.location or "") else ""
+        # Prefer explicit city/state fields; fall back to parsing location string
+        city  = getattr(profile, "city", "") or (
+            profile.location.split(",")[0].strip() if "," in (profile.location or "") else profile.location
+        )
+        state = getattr(profile, "state", "") or (
+            profile.location.split(",")[-1].strip() if "," in (profile.location or "") else ""
+        )
 
         years = self._estimate_years(profile)
         degree = ""
@@ -558,9 +578,10 @@ Return only the JSON array."""
             "personal_phone":      profile.phone or "",
             "personal_city":       city or "",
             "personal_state":      state or "",
-            "personal_zip":        "",
-            "personal_country":    "United States",
-            "personal_address":    "",
+            "personal_zip":        getattr(profile, "zip_code", "") or "",
+            "personal_country":    getattr(profile, "country", "United States") or "United States",
+            "personal_address":    getattr(profile, "address_line1", "") or "",
+            "personal_address2":   getattr(profile, "address_line2", "") or "",
             "social_linkedin":     getattr(profile, "linkedin_url", "") or "",
             "social_github":       getattr(profile, "github_url", "") or "",
             "social_portfolio":    getattr(profile, "website", "") or getattr(profile, "linkedin_url", "") or "",

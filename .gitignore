@@ -28,3 +28,6 @@ _gen_icons_tmp.py
 .DS_Store
 Thumbs.db
 zizJB6Zi
+
+debug.log
+*.log

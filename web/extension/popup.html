@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Agent</title>
+  <style>
+    :root {
+      --bg: #0d1628;
+      --surface: rgba(255,255,255,.03);
+      --border: rgba(255,255,255,.07);
+      --cyan: #22d3ee;
+      --indigo: #6366f1;
+      --green: #10b981;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --dim: #1e3a5f;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 13px;
+    }
+    .header {
+      background: linear-gradient(90deg, rgba(34,211,238,.06), rgba(99,102,241,.04));
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo {
+      width: 34px; height: 34px;
+      background: linear-gradient(135deg, #6366f1, #22d3ee);
+      border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    .header-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .header-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    .body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+    .status-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .status-row {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      transition: background .3s;
+    }
+    .dot-ok   { background: var(--cyan); box-shadow: 0 0 8px rgba(34,211,238,.5); animation: pulse 2s ease-in-out infinite; }
+    .dot-err  { background: var(--red); }
+    .dot-idle { background: var(--dim); }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 5px rgba(34,211,238,.3); }
+      50%      { box-shadow: 0 0 14px rgba(34,211,238,.7); }
+    }
+    .status-label { font-weight: 600; font-size: 12px; }
+    .status-detail { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 12px;
+    }
+    .stat-val {
+      font-size: 22px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--cyan), var(--indigo));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1;
+    }
+    .stat-label { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+    .profile-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 13px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .avatar {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, rgba(99,102,241,.3), rgba(34,211,238,.2));
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+      border: 1px solid rgba(99,102,241,.2);
+    }
+    .profile-name { font-size: 12px; font-weight: 700; color: var(--text); }
+    .profile-title { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      width: 100%; padding: 10px;
+      border: none; border-radius: 9px;
+      font-size: 12px; font-weight: 700;
+      cursor: pointer; font-family: inherit;
+      transition: all .15s; letter-spacing: .02em;
+    }
+    .btn:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-primary {
+      background: linear-gradient(135deg, #06b6d4, #6366f1);
+      color: #fff;
+      box-shadow: 0 0 20px rgba(34,211,238,.15);
+    }
+    .btn-primary:hover:not(:disabled) {
+      box-shadow: 0 0 36px rgba(34,211,238,.3);
+      transform: translateY(-1px);
+    }
+    .btn-outline {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .btn-outline:hover { color: var(--text); background: rgba(255,255,255,.05); }
+
+    .known-sites {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .ks-header {
+      padding: 8px 12px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--dim);
+      border-bottom: 1px solid var(--border);
+    }
+    .ks-list { max-height: 110px; overflow-y: auto; }
+    .ks-list::-webkit-scrollbar { width: 3px; }
+    .ks-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .ks-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ks-row:last-child { border-bottom: none; }
+    .ks-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+    .ks-domain { flex: 1; font-size: 11px; color: var(--text); }
+    .ks-count { font-size: 10px; color: var(--muted); }
+    .ks-empty { padding: 12px; font-size: 11px; color: var(--dim); text-align: center; }
+
+    .footer {
+      padding: 8px 16px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .footer-link {
+      font-size: 10px; color: var(--dim); text-decoration: none;
+      cursor: pointer;
+    }
+    .footer-link:hover { color: var(--muted); }
+    .version { font-size: 10px; color: var(--dim); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">⚡</div>
+    <div>
+      <div class="header-title">Job Agent Smart Apply</div>
+      <div class="header-sub">AI-powered application assistant</div>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- Connection status -->
+    <div class="status-card">
+      <div class="status-row">
+        <div class="dot dot-idle" id="conn-dot"></div>
+        <div class="status-label" id="conn-label">Connecting…</div>
+      </div>
+      <div class="status-detail" id="conn-detail">Checking Job Agent server on localhost:8000</div>
+    </div>
+
+    <!-- Profile -->
+    <div class="profile-card" id="profile-card" style="display:none">
+      <div class="avatar">👤</div>
+      <div>
+        <div class="profile-name" id="profile-name">—</div>
+        <div class="profile-title" id="profile-title">—</div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="stats-grid" style="display:none">
+      <div class="stat-card">
+        <div class="stat-val" id="stat-sites">0</div>
+        <div class="stat-label" id="stat-sites-lbl">Fields Learned</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-fills">0</div>
+        <div class="stat-label" id="stat-fills-lbl">Total Fills</div>
+      </div>
+    </div>
+
+    <!-- Smart Fill button -->
+    <button class="btn btn-primary" id="fill-btn" disabled>
+      ⚡ Smart Fill Current Page
+    </button>
+
+    <!-- Known sites -->
+    <div class="known-sites" id="known-sites-card" style="display:none">
+      <div class="ks-header">Learned Sites</div>
+      <div class="ks-list" id="ks-list">
+        <div class="ks-empty">No sites learned yet</div>
+      </div>
+    </div>
+
+    <button class="btn btn-outline" id="open-dashboard-btn">Open Full Dashboard</button>
+  </div>
+
+  <div class="footer">
+    <span class="footer-link" id="refresh-btn">↺ Refresh</span>
+    <span class="version">v1.0.0</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

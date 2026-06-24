@@ -6,6 +6,7 @@ Improvements:
   #1 Recency bonus  — fresh postings get +0-15 pts added post-scoring
   #4 JD compression — strips boilerplate before sending to Claude (~60% fewer tokens)
 """
+import hashlib
 import json
 import re
 from datetime import datetime
@@ -15,6 +16,7 @@ import anthropic
 
 from job_agent.models import JobPosting, UserProfile
 from job_agent.config import AIConfig
+from typing import Optional
 
 
 SCORING_SYSTEM_PROMPT = """You are a recruiter and career coach evaluating job-candidate fit.
@@ -133,6 +135,60 @@ def recency_bonus(posted_date) -> float:
     return 0.0
 
 
+# ── Country filter (#5) ───────────────────────────────────────────────────────
+
+# US state abbreviations for fast recognition of domestic locations
+_US_STATES = {
+    'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
+    'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+    'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
+    'VA','WA','WV','WI','WY','DC',
+}
+
+# Country name tokens that unambiguously identify non-US/non-remote jobs
+_FOREIGN_TOKENS = {
+    'united kingdom','uk','england','scotland','wales','ireland',
+    'canada','australia','new zealand','germany','france','spain','italy',
+    'netherlands','belgium','sweden','norway','denmark','finland','switzerland',
+    'austria','portugal','poland','czech','india','singapore','hong kong',
+    'japan','china','south korea','brazil','mexico','argentina','colombia',
+}
+
+def _location_allowed(location: Optional[str], allowed_countries: List[str]) -> bool:
+    """Return True if the job location is consistent with any allowed country."""
+    if not location:
+        return True  # Unknown location — don't discard
+
+    loc = location.strip().lower()
+
+    # Explicit "Remote" match
+    remote_allowed = any(c.lower() in ('remote', 'anywhere') for c in allowed_countries)
+    if remote_allowed and 'remote' in loc:
+        return True
+
+    # US state abbreviation anywhere in location string → domestic job
+    us_allowed = any(c.lower() in ('united states', 'us', 'usa') for c in allowed_countries)
+    if us_allowed:
+        # "City, ST" or "City, ST, USA" — check last non-country token
+        parts = [p.strip().upper() for p in re.split(r'[,\s]+', location)]
+        if any(p in _US_STATES for p in parts):
+            return True
+        # Common US suffixes
+        if any(t in loc for t in ('united states', ', usa', ', us', 'u.s.')):
+            return True
+
+    # Check if location contains a clearly foreign country token — only drop if not allowed
+    for token in _FOREIGN_TOKENS:
+        if token in loc:
+            # See if this foreign country is in the allowed list
+            allowed = any(token in c.lower() or c.lower() in token for c in allowed_countries)
+            if not allowed:
+                return False
+
+    # Couldn't prove it's foreign → keep it (false negatives safer than over-dropping)
+    return True
+
+
 # ── Scorer ─────────────────────────────────────────────────────────────────────
 
 class JobScorer:
@@ -141,7 +197,8 @@ class JobScorer:
         self.model  = config.scoring_model
 
     def score_batch(
-        self, jobs: List[JobPosting], profile: UserProfile, min_score: float = 50.0
+        self, jobs: List[JobPosting], profile: UserProfile, min_score: float = 50.0,
+        allowed_countries: Optional[List[str]] = None,
     ) -> List[JobPosting]:
         """
         Score jobs, apply recency bonus, sort by final score, filter by min_score.
@@ -150,11 +207,44 @@ class JobScorer:
         if not jobs:
             return []
 
-        print(f"[scorer] Scoring {len(jobs)} jobs (compressed descriptions)…")
+        # Dedup by compressed description hash — multi-location copies of same JD
+        # only need one Claude call; scores are copied back to the rest.
+        desc_to_source: dict = {}  # dhash → first JobPosting in unique set
+        unique_jobs: List[JobPosting] = []
+        dups: list = []            # (job, source_job) — score will be cloned
+
+        for job in jobs:
+            compressed = compress_description(job.description or '')
+            dhash = hashlib.md5(compressed.encode()).hexdigest()
+            if dhash in desc_to_source:
+                dups.append((job, desc_to_source[dhash]))
+            else:
+                desc_to_source[dhash] = job
+                unique_jobs.append(job)
+
+        if dups:
+            print(f"[scorer] Deduped {len(dups)} identical descriptions — "
+                  f"scoring {len(unique_jobs)}/{len(jobs)} unique JDs")
+
+        print(f"[scorer] Scoring {len(unique_jobs)} jobs (compressed descriptions)…")
 
         scored: List[JobPosting] = []
-        for i in range(0, len(jobs), 10):
-            scored.extend(self._score_batch(jobs[i:i + 10], profile))
+        for i in range(0, len(unique_jobs), 10):
+            scored.extend(self._score_batch(unique_jobs[i:i + 10], profile))
+
+        # Copy scores from source to duplicate jobs
+        source_scores: dict = {id(s): s for s in scored}
+        for job, source in dups:
+            if id(source) in source_scores:
+                src = source_scores[id(source)]
+            else:
+                src = source
+            job.fit_score         = src.fit_score
+            job.salary_score      = src.salary_score
+            job.combined_score    = src.combined_score
+            job.score_breakdown   = dict(src.score_breakdown)
+            job.description_summary = src.description_summary
+            scored.append(job)
 
         # Apply recency bonus and sort by final score
         for job in scored:
@@ -167,6 +257,14 @@ class JobScorer:
 
         qualified = [j for j in scored if j.combined_score >= min_score]
         qualified.sort(key=lambda j: j.combined_score, reverse=True)
+
+        # Apply country filter if configured
+        if allowed_countries:
+            before = len(qualified)
+            qualified = [j for j in qualified if _location_allowed(j.location, allowed_countries)]
+            dropped = before - len(qualified)
+            if dropped:
+                print(f"[scorer] Dropped {dropped} jobs outside allowed countries: {allowed_countries}")
 
         print(f"[scorer] {len(qualified)}/{len(scored)} jobs qualify (≥{min_score})")
         return qualified

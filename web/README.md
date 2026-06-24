@@ -1,34 +1,24 @@
-# Job Agent Web UI
+# Job Agent — Web UI & API
 
-A modern web interface for the Job Agent, built with **FastAPI** backend and **vanilla HTML/CSS/JavaScript** frontend (no npm required!).
+FastAPI backend + single-file frontend for the Job Agent.
 
-## Features
+See the [root README](../README.md) for full setup, feature documentation, and configuration.
 
-✨ **Dashboard** - View pipeline status in real-time
-👤 **Profile** - Review your AI-synthesized profile from resume + Obsidian vault
-📋 **Jobs** - Browse all found and applied jobs with scores
-📊 **Real-time Logs** - Watch the agent run with live log streaming
-⚙️ **Controls** - Start/stop searches with one click
+---
 
-## Quick Start
-
-### 1. Install Dependencies
+## Quick start
 
 ```bash
-pip install -r web/requirements.txt
-```
-
-### 2. Run the Server
-
-```bash
+# From the repo root (after running setup.bat / setup.sh once):
 python web/backend/main.py
+# Then open http://localhost:8000
 ```
 
-### 3. Open Browser
-
-Visit **http://localhost:8000** 🌐
-
-That's it! The frontend is a single HTML file with no build steps needed.
+Or use the launcher:
+```
+start_job_agent.bat   (Windows)
+./start_job_agent.sh  (Mac / Linux)
+```
 
 ---
 
@@ -37,134 +27,131 @@ That's it! The frontend is a single HTML file with no build steps needed.
 ```
 web/
 ├── backend/
-│   └── main.py          # FastAPI server with REST API + WebSocket
-├── frontend/
-│   ├── index.html       # All-in-one UI (HTML + CSS + JS)
-│   └── package.json     # (Optional - for future React migration)
-└── requirements.txt     # Python dependencies
+│   └── main.py          FastAPI server — REST API + WebSocket
+└── frontend/
+    └── index.html       All-in-one UI (HTML + CSS + vanilla JS, no build step)
 ```
 
-## Features in Detail
-
-### Dashboard
-- Real-time pipeline status
-- 4 key metrics (Jobs Found, Scored, Applied)
-- Start/Stop controls
-- Current step indicator
-
-### Profile
-- Your name, email, location
-- LinkedIn profile
-- Summary from resume + Obsidian vault
-- Top skills from AI synthesis
-
-### Jobs
-- Browse all discovered jobs
-- Fit score visualization
-- Salary information
-- Direct links to job postings
-- Status badges (found, scored, applied, rejected)
-
-### Logs
-- Real-time log streaming via WebSocket
-- Color-coded messages (info, success, error)
-- Auto-scrolling log viewer
-- Complete pipeline activity history
+The frontend is a single HTML file served directly by FastAPI. No npm, no bundler.
 
 ---
 
 ## API Reference
 
-### REST Endpoints
-
+### Health & Status
 ```
-GET  /api/health                  # Health check
-GET  /api/profile                 # Get AI-synthesized profile
-GET  /api/status                  # Get pipeline status
-GET  /api/jobs?status=X&limit=50  # Get jobs from database
-POST /api/start-search            # Start job search
-POST /api/stop-pipeline           # Stop running pipeline
+GET  /api/health                     Server health check
+GET  /api/status                     Pipeline running state + live counters
+GET  /api/score                      XP, level, streak, run history (gamification)
+```
+
+### Profile
+```
+GET  /api/profile                    Cached AI profile (instant — no Claude call)
+POST /api/rescan-profile             Force-rebuild profile from vault + resume
+```
+
+### Jobs
+```
+GET  /api/jobs?status=X&limit=50     All jobs from DB, optional status filter
+GET  /api/jobs/{id}/brief            AI match brief — tailored summary + skills (calls Claude)
+```
+
+### Pipeline
+```
+POST /api/scan-jobs?min_score=60     Search + score, no apply
+POST /api/start-search               Search + score + stream results to WS
+POST /api/stop-pipeline              Graceful stop after current job
+POST /api/auto-apply?min_score=70    Auto-apply to all qualifying queued jobs
+POST /api/jobs/{id}/apply            Apply to a single job by ID
+PATCH /api/jobs/{id}/status          Manually update application status
+POST /api/jobs/{id}/mark-applied-manually
+GET  /api/needs-manual               Jobs that failed automation, awaiting manual apply
+```
+
+### AI Generation
+```
+POST /api/cover-letter/{job_id}      Generate a tailored cover letter
+POST /api/outreach/{job_id}          Generate full outreach kit + playbook
+```
+
+### Config
+```
+GET  /api/config                     Read config.yaml as JSON
+POST /api/config                     Write config.yaml (deep-merges body)
+```
+
+### Platform Logins
+```
+GET  /api/login-status               LinkedIn + Indeed session check (reads cookie DB)
+POST /api/open-login/{platform}      Open persistent browser for manual login
+POST /api/open-browser               Open persistent browser to any URL
+```
+
+### CAPTCHA
+```
+GET  /api/captcha-status             Whether the pipeline is paused waiting for CAPTCHA solve
+POST /api/captcha-solved             Resume the pipeline after manual CAPTCHA solve
+```
+
+### Chrome Extension
+```
+POST /api/smart-fill                 Fill fields for a job form (extension → backend)
+POST /api/learn-pattern              Reinforce field semantics after submission
+POST /api/learn-field                Save manually entered / corrected field values
+GET  /api/known-sites                Domains where the extension has submitted
+GET  /api/field-intelligence         Global field semantics stats
+POST /api/track-job                  Queue a job from the extension
+```
+
+### Logs
+```
+GET  /api/run-log                    Markdown run log content
+DELETE /api/run-log                  Clear run log
+GET  /api/improvements               Self-improvement log (open issues, recent wins)
 ```
 
 ### WebSocket
-
 ```
-WS /ws/logs                        # Real-time log streaming
-```
-
----
-
-## Environment Setup
-
-Make sure your environment variables are set:
-
-```bash
-# Set your Anthropic API key
-$env:ANTHROPIC_API_KEY = "sk-ant-YOUR_KEY_HERE"
-
-# Then run the server
-python web/backend/main.py
+WS   /ws/logs                        Real-time log stream + pipeline events
 ```
 
-The backend reads from `config.yaml` in the parent directory.
+#### WebSocket message types (server → client)
+
+| `type` | Payload fields | When sent |
+|--------|---------------|-----------|
+| `log` | `message`, `timestamp` | General pipeline log line |
+| `complete` | `message`, `timestamp` | Step or run completed |
+| `error` | `message`, `timestamp` | Pipeline error |
+| `jobs` | `jobs[]`, `timestamp` | New batch of scored jobs ready |
+| `apply_update` | `job_id`, `status`, `company`, `title`, `error`, `notes` | Single job apply result |
+| `scan_complete` | `new_count`, `total_scored`, `timestamp` | Scan-only run finished |
+| `score_update` | `run_score`, `xp_earned`, `total_xp`, `level`, `streak`, `best_score` | Run score broadcast |
+| `captcha_detected` | `job_id`, `company`, `title`, `url` | CAPTCHA pause triggered |
+| `captcha_resolved` | `timestamp` | CAPTCHA solved, pipeline resuming |
 
 ---
 
-## How It Works
-
-1. **Frontend** sends requests to FastAPI REST API
-2. **Backend** connects to Job Agent core (same as CLI)
-3. **WebSocket** streams real-time logs during execution
-4. **Database** is shared with CLI (output/applications.db)
-
----
-
-## Troubleshooting
-
-### Port Already in Use
-```bash
-python web/backend/main.py --port 8001
-```
-
-### Backend Not Responding
-- Verify the backend is running: `python web/backend/main.py`
-- Check that port 8000 is not blocked
-- Ensure your API key is set: `echo $env:ANTHROPIC_API_KEY`
-
-### WebSocket Connection Failed
-- This is normal if the backend just started
-- The frontend will auto-reconnect
-- Check browser console for details
-
----
-
-## Performance
-
-- **Frontend**: Single HTML file, ~50KB
-- **Backend**: FastAPI with async/WebSocket support
-- **Database**: SQLite queries for instant results
-- **Real-time**: WebSocket streaming with <100ms latency
-
----
-
-## API Documentation
-
-Once running, visit:
+## Interactive API docs
 
 ```
 http://localhost:8000/docs
 ```
 
-This opens the interactive Swagger UI with all API endpoints documented.
+Full Swagger UI with all endpoints, request/response schemas, and try-it-out.
 
 ---
 
-## Next Steps
+## Troubleshooting
 
-1. ✅ `pip install -r web/requirements.txt`
-2. ✅ `python web/backend/main.py`
-3. ✅ Open http://localhost:8000
-4. ✅ Click "Start Search"
-5. ✅ Watch real-time logs and results
+**Port already in use**
+```bash
+# Edit start_job_agent.bat / start_job_agent.sh to change the port, or:
+uvicorn web.backend.main:app --port 8001
+```
 
-Happy job hunting! 🚀
+**WebSocket not connecting** — normal on first load. The frontend auto-reconnects every 3 seconds.
+
+**Cover letter / Intel returning 500** — your profile cache may be empty. Go to the Profile tab → Deep Rescan.
+
+**Jobs not saving** — check `output/applications.db` exists (created automatically on first run).

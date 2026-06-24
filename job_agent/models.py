@@ -1,8 +1,10 @@
 """
 Core data models for the Job Agent system.
 """
+import asyncio
+import threading
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from datetime import datetime
 from enum import Enum
 
@@ -85,7 +87,13 @@ class UserProfile:
     name: str = ""
     email: str = ""
     phone: str = ""
-    location: str = ""
+    location: str = ""          # "City, ST" display string
+    address_line1: str = ""     # Street address for application forms
+    address_line2: str = ""     # Apt/Suite (optional)
+    city: str = ""
+    state: str = ""
+    zip_code: str = ""
+    country: str = "United States"
     linkedin_url: str = ""
     github_url: str = ""
     website: str = ""
@@ -125,16 +133,151 @@ class TailoredResume:
     highlighted_skills: List[str] = field(default_factory=list)
     keywords_matched: List[str] = field(default_factory=list)
     ats_score_estimate: float = 0.0
+    cover_letter_text: str = ""      # Generated cover letter body; empty = not generated
     docx_path: Optional[str] = None
     pdf_path: Optional[str] = None
     generated_at: datetime = field(default_factory=datetime.now)
+
+
+class LazyResume:
+    """
+    Drop-in replacement for TailoredResume that defers all AI generation
+    until the application agent actually needs the content.
+
+    Trigger chain (each step implies the previous):
+      file upload detected  → ensure_docx()        → ensure_tailored() internally
+      cover letter field    → ensure_cover_letter() → ensure_tailored() internally
+      open-ended question   → ensure_tailored()
+
+    All attribute reads work unchanged from agent code — they just return
+    empty defaults until the relevant ensure_*() is awaited.
+    """
+
+    def __init__(
+        self,
+        job: "JobPosting",
+        profile: "UserProfile",
+        tailor,
+        resumes_dir: str,
+        auto_cover_letter: bool = False,
+        vault_index=None,
+    ):
+        self.job = job
+        self.profile = profile
+        self._tailor = tailor
+        self._resumes_dir = resumes_dir
+        self._auto_cover_letter = auto_cover_letter
+        self._vault_index = vault_index
+
+        # Generation state
+        self._tailored: Optional[TailoredResume] = None
+        self._tailoring = False     # guard against re-entrant async calls
+        self._cl_done = False
+        self._docx_done = False
+        self._lock = threading.Lock()
+
+        # TailoredResume-compatible interface — defaults until materialised
+        self.tailored_summary: str = ""
+        self.tailored_experience: list = []
+        self.highlighted_skills: list = []
+        self.keywords_matched: list = []
+        self.ats_score_estimate: float = 0.0
+        self.cover_letter_text: str = ""
+        self.docx_path: Optional[str] = None
+        self.pdf_path: Optional[str] = None
+        self.generated_at: datetime = datetime.now()
+
+    # ── internal sync worker (runs in executor thread) ────────────────────────
+
+    def _run_tailor(self) -> Optional[TailoredResume]:
+        return self._tailor.tailor(self.job, self.profile, vault_index=self._vault_index)
+
+    def _run_cover_letter(self) -> str:
+        return self._tailor.generate_cover_letter(self.job, self.profile)
+
+    def _run_build_docx(self) -> None:
+        from job_agent.builders.resume_builder import build_resume_docx
+        build_resume_docx(self._tailored, self._resumes_dir)
+
+    # ── public async API ──────────────────────────────────────────────────────
+
+    async def ensure_tailored(self) -> bool:
+        """
+        Generate tailored resume content (summary, experience bullets, skills).
+        Runs in a thread pool so the event loop stays responsive.
+        Returns True if generation happened, False if already done or failed.
+        """
+        if self._tailored is not None:
+            return False
+        with self._lock:
+            if self._tailored is not None:
+                return False
+        print(f"[lazy-resume] Tailoring on-demand: {self.job.title} @ {self.job.company}")
+        loop = asyncio.get_event_loop()
+        try:
+            t = await loop.run_in_executor(None, self._run_tailor)
+            self._tailored = t
+            self.tailored_summary = t.tailored_summary
+            self.tailored_experience = t.tailored_experience
+            self.highlighted_skills = t.highlighted_skills
+            self.keywords_matched = t.keywords_matched
+            self.ats_score_estimate = t.ats_score_estimate
+            print(f"[lazy-resume] Tailored ✓ — {self.job.title}")
+            return True
+        except Exception as e:
+            print(f"[lazy-resume] Tailor failed ({self.job.title}): {e}")
+            return False
+
+    async def ensure_docx(self) -> bool:
+        """
+        Build a tailored DOCX resume file.
+        Triggers ensure_tailored() first if content hasn't been generated yet.
+        Returns True if a new file was built.
+        """
+        if self.docx_path:
+            return False
+        await self.ensure_tailored()
+        if self._tailored is None:
+            print(f"[lazy-resume] Skipping DOCX — tailor failed: {self.job.title}")
+            return False
+        print(f"[lazy-resume] Building DOCX on-demand: {self.job.title}")
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(None, self._run_build_docx)
+            self.docx_path = self._tailored.docx_path
+            print(f"[lazy-resume] DOCX ready ✓ — {self.docx_path}")
+            return True
+        except Exception as e:
+            print(f"[lazy-resume] DOCX build failed ({self.job.title}): {e}")
+            return False
+
+    async def ensure_cover_letter(self) -> bool:
+        """
+        Generate a tailored cover letter.
+        Triggers ensure_tailored() first so the CL has full job context.
+        Returns True if a new letter was generated.
+        """
+        if self.cover_letter_text:
+            return False
+        await self.ensure_tailored()
+        print(f"[lazy-resume] Generating cover letter on-demand: {self.job.title}")
+        loop = asyncio.get_event_loop()
+        try:
+            cl = await loop.run_in_executor(None, self._run_cover_letter)
+            self.cover_letter_text = cl
+            self._cl_done = True
+            print(f"[lazy-resume] Cover letter ready ✓ — {self.job.title}")
+            return True
+        except Exception as e:
+            print(f"[lazy-resume] Cover letter failed ({self.job.title}): {e}")
+            return False
 
 
 @dataclass
 class Application:
     id: str
     job: JobPosting
-    resume: TailoredResume
+    resume: Any  # TailoredResume or LazyResume
     status: ApplicationStatus = ApplicationStatus.QUEUED
     applied_at: Optional[datetime] = None
     interview_at: Optional[datetime] = None

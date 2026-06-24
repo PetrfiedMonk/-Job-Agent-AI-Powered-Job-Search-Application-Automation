@@ -70,9 +70,12 @@ function renderStatus(status, jobInfo) {
   }
 
   html += `
-    <div class="footer">
-      <button class="foot-btn" id="refresh-btn">↺ Refresh</button>
-      <button class="foot-btn" id="dash-btn">Dashboard</button>
+    <div class="footer" style="flex-direction:column;gap:5px;">
+      <button class="foot-btn" id="fill-btn" style="background:rgba(99,102,241,.12);border-color:rgba(99,102,241,.3);color:#a78bfa;font-weight:700;">⚡ Fill This Page</button>
+      <div style="display:flex;gap:5px;">
+        <button class="foot-btn" id="refresh-btn">↺ Refresh</button>
+        <button class="foot-btn" id="dash-btn">Dashboard</button>
+      </div>
     </div>
   `;
 
@@ -84,6 +87,21 @@ function renderStatus(status, jobInfo) {
   $("dash-btn")?.addEventListener("click", () =>
     chrome.tabs.create({ url: API })
   );
+
+  $("fill-btn")?.addEventListener("click", async () => {
+    const btn = $("fill-btn");
+    btn.disabled = true;
+    btn.textContent = "⏳ Filling…";
+    chrome.runtime.sendMessage({ type: "FILL_PAGE" }, (r) => {
+      if (r?.ok) {
+        btn.textContent = "✓ Done!";
+        setTimeout(() => { btn.textContent = "⚡ Fill This Page"; btn.disabled = false; }, 2000);
+      } else {
+        btn.textContent = "No form found";
+        setTimeout(() => { btn.textContent = "⚡ Fill This Page"; btn.disabled = false; }, 2000);
+      }
+    });
+  });
 
   $("track-btn")?.addEventListener("click", async () => {
     const btn = $("track-btn");
